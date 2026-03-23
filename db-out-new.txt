@@ -1,0 +1,2 @@
+Total NEW records: 1
+[0] {"_id":"69bd31ae0ba0a83a966dad1c","name":"M KHALEQUE UL AKASH","email":"Exam-2024","rollRangeStart":"","rollRangeEnd":"","totalStudents":1,"seatingPlan":"Just Uploaded","reg_no":"PHARM232406805","roll":"PADCPPHARM2","no":"10006806","sem":"2","type":"regular","inst_id":"ADCP","inst_name":"ADAMANT COLLEGE OF PHARMACY","exam_centre_code":"BPC","exam_centre_name":"Bipradas Pal Chowdhury Institute of Technology","createdAt":"2026-03-20T11:38:22.271Z","updatedAt":"2026-03-20T11:38:22.271Z","__v":0}
