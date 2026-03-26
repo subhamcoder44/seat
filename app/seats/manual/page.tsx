@@ -21,8 +21,10 @@ import {
   CheckCircle2,
   AlertCircle,
   Wand2,
-  FileText
+  FileText,
+  Sparkles
 } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -52,7 +54,7 @@ type RoomAllocation = {
 const PATTERNS = ['Z-Pattern (Zig-Zag)', 'Row-wise Linear', 'Column-wise Linear', 'Snake Pattern', 'Random Distribution'];
 
 export default function ManualAllocationPage() {
-  const { students, globalFilters, fetchData } = useAppState();
+  const { students, globalFilters, fetchData, resetFilters } = useAppState();
 
  
   const [DEPARTMENTS, setDEPARTMENTS] = useState<string[]>([]);
@@ -68,6 +70,7 @@ export default function ManualAllocationPage() {
   const [allocatedStudentIds, setAllocatedStudentIds] = useState<Set<string>>(new Set());
   const [roomAllocations, setRoomAllocations] = useState<RoomAllocation[]>([]);
   const [isShuffling, setIsShuffling] = useState(false);
+  const [smartDistribute, setSmartDistribute] = useState(true);
   const [isLoadingDepts, setIsLoadingDepts] = useState(true);
 
   useEffect(() => {
@@ -106,7 +109,7 @@ export default function ManualAllocationPage() {
 
     students.forEach(s => {
       const dept = (s as any).department || '';
-      const matchesSem = globalFilters.semester === 'all' || s.sem === globalFilters.semester;
+      const matchesSem = globalFilters.semester.includes('all') || globalFilters.semester.length === 0 || globalFilters.semester.includes(s.sem);
       const matchesCollege = globalFilters.college === 'all' || s.inst_name === globalFilters.college;
       const matchesDept = globalFilters.department === 'all' || s.department === globalFilters.department;
       const matchesType = globalFilters.type === 'all' || s.type === globalFilters.type;
@@ -188,10 +191,35 @@ export default function ManualAllocationPage() {
     const layout: RoomAllocation['layout'] = [];
     
     // Step 1: Create a flat list of all students to be allocated
-    const allStudents: Student[] = [];
-    newAllocations.forEach(a => {
-      allStudents.push(...a.students);
-    });
+    let allStudents: Student[] = [];
+    
+    if (smartDistribute) {
+      // Group by semester
+      const semMap = new Map<string, Student[]>();
+      newAllocations.forEach(a => {
+        a.students.forEach(s => {
+          if (!semMap.has(s.sem)) semMap.set(s.sem, []);
+          semMap.get(s.sem)?.push(s);
+        });
+      });
+
+      const sems = Array.from(semMap.keys()).sort();
+      const maxSize = Math.max(...Array.from(semMap.values()).map(v => v.length));
+      
+      // Interleave
+      for (let i = 0; i < maxSize; i++) {
+        sems.forEach(sem => {
+          const list = semMap.get(sem);
+          if (list && list[i]) {
+            allStudents.push(list[i]);
+          }
+        });
+      }
+    } else {
+      newAllocations.forEach(a => {
+        allStudents.push(...a.students);
+      });
+    }
     
     // Step 2: Initialize Grid
     // Grid dimensions: rows = numRows, cols = benchesPerRow * 2 (each bench has Left/Right seat)
@@ -634,19 +662,55 @@ export default function ManualAllocationPage() {
                   <p className="text-[10px] text-slate-400 font-medium italic">Fixed: All patterns now strictly follow side-by-side & vertical isolation rules.</p>
                 </div>
 
+                <div className="flex items-center justify-between p-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 rounded-xl border border-blue-100 dark:border-blue-900/50 transition-all hover:shadow-md group">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-blue-500 rounded-lg text-white group-hover:scale-110 transition-transform">
+                      <Sparkles size={18} />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200">Smart Distribute</p>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Interleave students from different semesters</p>
+                    </div>
+                  </div>
+                  <Switch 
+                    checked={smartDistribute} 
+                    onCheckedChange={setSmartDistribute}
+                    className="data-[state=checked]:bg-blue-600"
+                  />
+                </div>
+
                 <Separator />
 
                   <div className="space-y-4">
                     {/* Filters are now managed Globally via the Top Bar */}
-                    <div className="flex items-center gap-2 p-1.5 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl border border-blue-100/50 dark:border-blue-800/50">
+                    <div className="flex flex-wrap items-center gap-2 p-1.5 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl border border-blue-100/50 dark:border-blue-800/50">
                       <div className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 shadow-sm border border-blue-100 dark:border-blue-800 flex items-center gap-2">
                         <span className="text-[10px] font-black text-blue-500 uppercase">College:</span>
                         <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{globalFilters.college === 'all' ? 'Every College' : globalFilters.college}</span>
                       </div>
                       <div className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 shadow-sm border border-blue-100 dark:border-blue-800 flex items-center gap-2">
                         <span className="text-[10px] font-black text-blue-500 uppercase">Sem:</span>
-                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{globalFilters.semester === 'all' ? 'All' : globalFilters.semester}</span>
+                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                          {globalFilters.semester.includes('all') || globalFilters.semester.length === 0 
+                            ? 'All' 
+                            : globalFilters.semester.sort().join(', ')}
+                        </span>
                       </div>
+                      <div className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 shadow-sm border border-blue-100 dark:border-blue-800 flex items-center gap-2">
+                        <span className="text-[10px] font-black text-blue-500 uppercase">Type:</span>
+                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{globalFilters.type === 'all' ? 'All' : globalFilters.type}</span>
+                      </div>
+                      
+                      {(globalFilters.college !== 'all' || (globalFilters.semester.length > 0 && !globalFilters.semester.includes('all')) || globalFilters.type !== 'all' || globalFilters.department !== 'all') && (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={resetFilters}
+                          className="h-8 px-2 text-[10px] font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 uppercase tracking-tight ml-auto"
+                        >
+                          Clear
+                        </Button>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between mb-2">

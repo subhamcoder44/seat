@@ -30,7 +30,7 @@ import { Edit2, Eye, Search, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function DepartmentPlannerPage() {
-  const { students, globalFilters, setGlobalFilters, addStudent, addStudentsBulk, updateStudent, deleteStudent, deleteAllStudents, fetchData } = useAppState();
+  const { students, globalFilters, setGlobalFilters, addStudent, addStudentsBulk, updateStudent, deleteStudent, deleteAllStudents, fetchData, resetFilters } = useAppState();
 
   // Form State
   const [formData, setFormData] = useState({
@@ -289,7 +289,7 @@ export default function DepartmentPlannerPage() {
     const matchesDept =
       globalFilters.department === 'all' || deptDept === globalFilters.department;
     const matchesSem =
-      globalFilters.semester === 'all' || (dept.sem === globalFilters.semester);
+      globalFilters.semester.includes('all') || globalFilters.semester.length === 0 || globalFilters.semester.includes(dept.sem);
     const matchesCollege =
       globalFilters.college === 'all' || (dept.inst_name === globalFilters.college);
     const matchesType =
@@ -506,7 +506,11 @@ export default function DepartmentPlannerPage() {
                   </div>
                   <div className="px-3 py-1 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-2">
                     <span className="text-[10px] font-black text-slate-400 uppercase">Sem:</span>
-                    <span className="text-[10px] font-bold">{globalFilters.semester === 'all' ? 'All' : globalFilters.semester}</span>
+                    <span className="text-[10px] font-bold">
+                      {globalFilters.semester.includes('all') || globalFilters.semester.length === 0 
+                        ? 'All' 
+                        : globalFilters.semester.sort().join(', ')}
+                    </span>
                   </div>
                   <div className="px-3 py-1 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-2">
                     <span className="text-[10px] font-black text-slate-400 uppercase">Dept:</span>
@@ -517,8 +521,8 @@ export default function DepartmentPlannerPage() {
                     <span className="text-[10px] font-bold">{globalFilters.type === 'all' ? 'All' : globalFilters.type}</span>
                   </div>
                 </div>
-                {(globalFilters.department !== 'all' || globalFilters.semester !== 'all' || globalFilters.college !== 'all' || globalFilters.type !== 'all') && (
-                  <Button variant="outline" size="sm" onClick={() => setGlobalFilters({ college: 'all', semester: 'all', department: 'all', type: 'all' })} className="whitespace-nowrap">
+                {(globalFilters.department !== 'all' || (globalFilters.semester.length > 0 && !globalFilters.semester.includes('all')) || globalFilters.college !== 'all' || globalFilters.type !== 'all') && (
+                  <Button variant="outline" size="sm" onClick={resetFilters} className="whitespace-nowrap">
                     Clear Global Filters
                   </Button>
                 )}

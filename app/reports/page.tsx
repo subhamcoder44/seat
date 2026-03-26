@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { Download, Printer } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { AlertCircle } from 'lucide-react';
 
 export default function ReportsPage() {
   const { rooms, students, globalFilters, loadFromLocalStorage } = useAppState();
@@ -22,7 +24,7 @@ export default function ReportsPage() {
     // Filter students based on global filters
     const filteredStudents = students.filter((s) => {
       const matchesCollege = globalFilters.college === 'all' || s.inst_name === globalFilters.college;
-      const matchesSem = globalFilters.semester === 'all' || s.sem === globalFilters.semester;
+      const matchesSem = globalFilters.semester.includes('all') || globalFilters.semester.length === 0 || globalFilters.semester.includes(s.sem);
       const matchesDept = globalFilters.department === 'all' || s.department === globalFilters.department;
       const matchesType = globalFilters.type === 'all' || s.type === globalFilters.type;
       return matchesCollege && matchesSem && matchesDept && matchesType;
@@ -32,13 +34,19 @@ export default function ReportsPage() {
 
     // Generate report data based on filtered students
     const data = rooms.map(room => {
-      const allocatedSeats = room.seats.filter(s => s.studentId && filteredStudentIds.has(s.studentId)).length;
-      const occupancyPercent = Math.round((allocatedSeats / room.seats.length) * 100);
+      const allocatedSeats = room.seats.filter(s => s.studentId && filteredStudentIds.has(s.studentId));
+      const sems = Array.from(new Set(allocatedSeats.map(seat => {
+        const student = students.find(st => st.id === seat.studentId);
+        return student?.sem;
+      }).filter(Boolean))).sort();
+
+      const occupancyPercent = Math.round((allocatedSeats.length / room.seats.length) * 100);
       return {
         name: `${room.name}`,
-        allocated: allocatedSeats,
-        available: room.seats.length - allocatedSeats,
+        allocated: allocatedSeats.length,
+        available: room.seats.length - allocatedSeats.length,
         occupancy: occupancyPercent,
+        sems: sems as string[],
       };
     });
 
@@ -63,7 +71,7 @@ export default function ReportsPage() {
   // Filtered stats for summary cards
   const filteredStudents = useMemo(() => students.filter((s) => {
     const matchesCollege = globalFilters.college === 'all' || s.inst_name === globalFilters.college;
-    const matchesSem = globalFilters.semester === 'all' || s.sem === globalFilters.semester;
+    const matchesSem = globalFilters.semester.includes('all') || globalFilters.semester.length === 0 || globalFilters.semester.includes(s.sem);
     const matchesDept = globalFilters.department === 'all' || s.department === globalFilters.department;
     const matchesType = globalFilters.type === 'all' || s.type === globalFilters.type;
     return matchesCollege && matchesSem && matchesDept && matchesType;
@@ -247,7 +255,20 @@ ${room.seats
                 <tbody>
                   {reportData.map((row, idx) => (
                     <tr key={idx} className="border-b border-border hover:bg-secondary">
-                      <td className="p-3 font-semibold text-foreground">{row.name}</td>
+                      <td className="p-3">
+                        <div className="flex flex-col gap-1">
+                          <span className="font-semibold text-foreground">{row.name}</span>
+                          {row.sems.length > 1 && (
+                            <Badge variant="destructive" className="w-fit text-[9px] h-4 px-1.5 uppercase font-black tracking-tighter animate-pulse">
+                              <AlertCircle size={10} className="mr-1" />
+                              Overlap: {row.sems.join(' + ')}
+                            </Badge>
+                          )}
+                          {row.sems.length === 1 && (
+                            <span className="text-[10px] text-slate-400 font-bold uppercase">Sem {row.sems[0]}</span>
+                          )}
+                        </div>
+                      </td>
                       <td className="text-right p-3 text-muted-foreground">
                         {rooms[idx]?.rows} × {rooms[idx]?.columns}
                       </td>

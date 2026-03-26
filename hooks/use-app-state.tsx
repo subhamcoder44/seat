@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, ReactNode, useCallback, useEffect } from 'react';
 
 export interface Student {
   id: string;
@@ -53,11 +53,20 @@ export interface Room {
 // Keep the old type alias for backwards compatibility in pages
 export type ExamRoom = Room;
 
+export interface Schedule {
+  id: string;
+  date: string;
+  time: string;
+  semesters: string[];
+  createdAt: string;
+}
+
 export interface GlobalFilters {
   college: string;
-  semester: string;
+  semester: string[];
   department: string;
   type: string;
+  scheduleId: string;
 }
 
 interface AppStateContextType {
@@ -84,6 +93,11 @@ interface AppStateContextType {
   allocateStudentToSeat: (roomId: string, seatId: string, studentId: string) => Promise<void>;
   deallocateStudentFromSeat: (roomId: string, seatId: string) => Promise<void>;
   findStudentSeat: (query: string) => { room: Room, seat: Seat, student: Student } | null;
+  // Schedules
+  schedules: Schedule[];
+  fetchSchedules: () => Promise<void>;
+  addSchedule: (data: Omit<Schedule, 'id' | 'createdAt'>) => Promise<void>;
+  deleteSchedule: (id: string) => Promise<void>;
 }
 
 const AppStateContext = createContext<AppStateContextType | undefined>(undefined);
@@ -94,10 +108,12 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
   const [globalFilters, setGlobalFiltersState] = useState<GlobalFilters>({
     college: 'all',
-    semester: 'all',
+    semester: ['all'],
     department: 'all',
-    type: 'all'
+    type: 'all',
+    scheduleId: 'all'
   });
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
 
   const setGlobalFilters = useCallback((updates: Partial<GlobalFilters>) => {
     setGlobalFiltersState(prev => ({ ...prev, ...updates }));
@@ -106,9 +122,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const resetFilters = useCallback(() => {
     setGlobalFiltersState({
       college: 'all',
-      semester: 'all',
+      semester: ['all'],
       department: 'all',
-      type: 'all'
+      type: 'all',
+      scheduleId: 'all'
     });
   }, []);
 
@@ -314,6 +331,43 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     return null;
   }, [rooms, students]);
 
+  const fetchSchedules = useCallback(async () => {
+    try {
+      const res = await fetch('/api/schedules');
+      const data = await res.json();
+      setSchedules(data);
+    } catch (err) {
+      console.error('Failed to fetch schedules', err);
+    }
+  }, []);
+
+  const addSchedule = useCallback(async (data: Omit<Schedule, 'id' | 'createdAt'>) => {
+    try {
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) fetchSchedules();
+    } catch (err) {
+      console.error('Failed to add schedule', err);
+    }
+  }, [fetchSchedules]);
+
+  const deleteSchedule = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/schedules?id=${id}`, { method: 'DELETE' });
+      if (res.ok) fetchSchedules();
+    } catch (err) {
+      console.error('Failed to delete schedule', err);
+    }
+  }, [fetchSchedules]);
+
+  useEffect(() => {
+    fetchData();
+    fetchSchedules();
+  }, [fetchData, fetchSchedules]);
+
   const value: AppStateContextType = {
     rooms,
     students,
@@ -337,6 +391,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     allocateStudentToSeat,
     deallocateStudentFromSeat,
     findStudentSeat,
+    schedules,
+    fetchSchedules,
+    addSchedule,
+    deleteSchedule,
   };
 
   return (
