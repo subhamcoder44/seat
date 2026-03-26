@@ -78,8 +78,9 @@ export default function PacketListPage() {
         }
         const group = cohortData.get(key)!;
         group.count += 1;
-        if (seat.studentId && !group.rolls.includes(seat.studentId)) {
-            group.rolls.push(seat.studentId);
+        const identifier = student?.reg_no || seat.studentId || '-';
+        if (identifier && !group.rolls.includes(identifier)) {
+            group.rolls.push(identifier);
         }
       });
 

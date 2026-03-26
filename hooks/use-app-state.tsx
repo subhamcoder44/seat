@@ -53,17 +53,29 @@ export interface Room {
 // Keep the old type alias for backwards compatibility in pages
 export type ExamRoom = Room;
 
+export interface GlobalFilters {
+  college: string;
+  semester: string;
+  department: string;
+  type: string;
+}
+
 interface AppStateContextType {
   rooms: Room[];
   students: Student[]; // This now acts as Departments
   loading: boolean;
+  globalFilters: GlobalFilters;
+  setGlobalFilters: (filters: Partial<GlobalFilters>) => void;
+  resetFilters: () => void;
   fetchData: () => Promise<void>;
   addRoom: (data: { name: string; building?: string; floor?: number; totalCapacity?: number; roomType?: string; rows: number; columns: number; doorPosition?: string; status?: string }) => Promise<void>;
   updateRoom: (id: string, room: Partial<Room>) => Promise<void>;
   deleteRoom: (id: string) => Promise<void>;
   addStudent: (data: Partial<Student>) => Promise<void>;
+  addStudentsBulk: (data: Partial<Student>[]) => Promise<void>;
   updateStudent: (id: string, data: Partial<Student>) => Promise<void>;
   deleteStudent: (id: string) => Promise<void>;
+  deleteAllStudents: () => Promise<void>;
   allocateSeat: (roomId: string, seatId: string, studentId: string) => Promise<void>;
   deallocateSeat: (roomId: string, seatId: string) => Promise<void>;
   // Keep legacy names so pages that call them don't break
@@ -80,6 +92,25 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
+  const [globalFilters, setGlobalFiltersState] = useState<GlobalFilters>({
+    college: 'all',
+    semester: 'all',
+    department: 'all',
+    type: 'all'
+  });
+
+  const setGlobalFilters = useCallback((updates: Partial<GlobalFilters>) => {
+    setGlobalFiltersState(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  const resetFilters = useCallback(() => {
+    setGlobalFiltersState({
+      college: 'all',
+      semester: 'all',
+      department: 'all',
+      type: 'all'
+    });
+  }, []);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -150,6 +181,23 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const addStudentsBulk = useCallback(async (data: Partial<Student>[]) => {
+    try {
+      const res = await fetch('/api/students', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (result.success) {
+        // Refresh all students since bulk might include updates (upserts)
+        await fetchData();
+      }
+    } catch (error) {
+      console.error('Failed to add students in bulk:', error);
+    }
+  }, [fetchData]);
+
   const updateStudent = useCallback(async (id: string, updates: Partial<Student>) => {
     try {
       const res = await fetch(`/api/students/${id}`, {
@@ -181,6 +229,29 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       );
     } catch (error) {
       console.error('Failed to delete student:', error);
+    }
+  }, []);
+
+  const deleteAllStudents = useCallback(async () => {
+    try {
+      const res = await fetch('/api/students', { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setStudents([]);
+        // Clear student assignments from all rooms
+        setRooms((prev) =>
+          prev.map((room) => ({
+            ...room,
+            seats: room.seats.map((seat) => ({
+              ...seat,
+              studentId: null,
+              status: 'available' as const,
+            })),
+          }))
+        );
+      }
+    } catch (error) {
+      console.error('Failed to delete all students:', error);
     }
   }, []);
 
@@ -247,13 +318,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     rooms,
     students,
     loading,
+    globalFilters,
+    setGlobalFilters,
+    resetFilters,
     fetchData,
     addRoom,
     updateRoom,
     deleteRoom,
     addStudent,
+    addStudentsBulk,
     updateStudent,
     deleteStudent,
+    deleteAllStudents,
     allocateSeat,
     deallocateSeat,
     loadFromLocalStorage,

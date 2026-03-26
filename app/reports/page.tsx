@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useAppState } from '@/hooks/use-app-state';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card } from '@/components/ui/card';
@@ -10,7 +10,7 @@ import { Download, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function ReportsPage() {
-  const { rooms, students, loadFromLocalStorage } = useAppState();
+  const { rooms, students, globalFilters, loadFromLocalStorage } = useAppState();
   const [reportData, setReportData] = useState<any[]>([]);
   const [occupancyData, setOccupancyData] = useState<any[]>([]);
 
@@ -19,37 +19,60 @@ export default function ReportsPage() {
   }, [loadFromLocalStorage]);
 
   useEffect(() => {
-    // Generate report data
+    // Filter students based on global filters
+    const filteredStudents = students.filter((s) => {
+      const matchesCollege = globalFilters.college === 'all' || s.inst_name === globalFilters.college;
+      const matchesSem = globalFilters.semester === 'all' || s.sem === globalFilters.semester;
+      const matchesDept = globalFilters.department === 'all' || s.department === globalFilters.department;
+      const matchesType = globalFilters.type === 'all' || s.type === globalFilters.type;
+      return matchesCollege && matchesSem && matchesDept && matchesType;
+    });
+
+    const filteredStudentIds = new Set(filteredStudents.map((s) => s.id));
+
+    // Generate report data based on filtered students
     const data = rooms.map(room => {
-      const allocatedSeats = room.seats.filter(s => s.studentId).length;
+      const allocatedSeats = room.seats.filter(s => s.studentId && filteredStudentIds.has(s.studentId)).length;
       const occupancyPercent = Math.round((allocatedSeats / room.seats.length) * 100);
       return {
-        name: `${room.name} (${room.building || 'A'})`,
+        name: `${room.name}`,
         allocated: allocatedSeats,
         available: room.seats.length - allocatedSeats,
         occupancy: occupancyPercent,
       };
     });
 
+    const totalAllocatedFiltered = rooms.reduce((sum, r) => sum + r.seats.filter(s => s.studentId && filteredStudentIds.has(s.studentId)).length, 0);
+    const totalAvailableSeats = rooms.reduce((sum, r) => sum + r.seats.length, 0);
+
     const occupancy = [
       {
         name: 'Allocated',
-        value: rooms.reduce((sum, r) => sum + r.seats.filter(s => s.studentId).length, 0),
+        value: totalAllocatedFiltered,
       },
       {
         name: 'Available',
-        value:
-          rooms.reduce((sum, r) => sum + r.seats.length, 0) -
-          rooms.reduce((sum, r) => sum + r.seats.filter(s => s.studentId).length, 0),
+        value: totalAvailableSeats - totalAllocatedFiltered,
       },
     ];
 
     setReportData(data);
     setOccupancyData(occupancy);
-  }, [rooms]);
+  }, [rooms, students, globalFilters]);
+
+  // Filtered stats for summary cards
+  const filteredStudents = useMemo(() => students.filter((s) => {
+    const matchesCollege = globalFilters.college === 'all' || s.inst_name === globalFilters.college;
+    const matchesSem = globalFilters.semester === 'all' || s.sem === globalFilters.semester;
+    const matchesDept = globalFilters.department === 'all' || s.department === globalFilters.department;
+    const matchesType = globalFilters.type === 'all' || s.type === globalFilters.type;
+    return matchesCollege && matchesSem && matchesDept && matchesType;
+  }), [students, globalFilters]);
+
+  const filteredStudentIds = useMemo(() => new Set(filteredStudents.map(s => s.id)), [filteredStudents]);
 
   const totalSeats = rooms.reduce((sum, r) => sum + r.seats.length, 0);
-  const totalAllocated = rooms.reduce((sum, r) => sum + r.seats.filter(s => s.studentId).length, 0);
+  const totalAllocated = rooms.reduce((sum, r) => sum + r.seats.filter(s => s.studentId && filteredStudentIds.has(s.studentId)).length, 0);
   const overallOccupancy = totalSeats > 0 ? Math.round((totalAllocated / totalSeats) * 100) : 0;
 
   const handlePrint = () => {
@@ -61,15 +84,15 @@ export default function ReportsPage() {
 Exam Seat Management Report
 Generated: ${new Date().toLocaleString()}
 
-SUMMARY
+SUMMARY (${globalFilters.college === 'all' ? 'All Colleges' : globalFilters.college})
 Total Rooms: ${rooms.length}
-Total Students: ${students.length}
-Total Seats: ${totalSeats}
-Allocated Seats: ${totalAllocated}
-Available Seats: ${totalSeats - totalAllocated}
+Total Students (Filtered): ${filteredStudents.length}
+Total Capacity (Global): ${totalSeats}
+Allocated Seats (Filtered): ${totalAllocated}
+Available Seats (Global): ${totalSeats - totalAllocated}
 Overall Occupancy: ${overallOccupancy}%
 
-ROOM DETAILS
+ROOM DETAILS (Filtered)
 ${rooms.map(room => {
   const allocatedSeats = room.seats.filter(s => s.studentId).length;
   const occupancyPercent = Math.round((allocatedSeats / room.seats.length) * 100);

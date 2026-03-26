@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { useAppState, Student } from '@/hooks/use-app-state';
 import { MainLayout } from '@/components/layout/MainLayout';
@@ -30,7 +30,7 @@ import { Edit2, Eye, Search, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function DepartmentPlannerPage() {
-  const { students, addStudent, updateStudent, deleteStudent, loadFromLocalStorage } = useAppState();
+  const { students, globalFilters, setGlobalFilters, addStudent, addStudentsBulk, updateStudent, deleteStudent, deleteAllStudents, fetchData } = useAppState();
 
   // Form State
   const [formData, setFormData] = useState({
@@ -45,6 +45,7 @@ export default function DepartmentPlannerPage() {
     inst_name: '',
     exam_centre_code: '',
     exam_centre_name: '',
+    department: '',
     email: 'Midterm-Oct',
     rollRangeStart: '',
     rollRangeEnd: '',
@@ -56,11 +57,19 @@ export default function DepartmentPlannerPage() {
   const [selectedDept, setSelectedDept] = useState<Student | null>(null);
   const [deptToDelete, setDeptToDelete] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [availableDepartments, setAvailableDepartments] = useState<string[]>([]);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadFromLocalStorage();
-  }, [loadFromLocalStorage]);
+    fetchData();
+    // Fetch distinct departments from DB
+    fetch('/api/students?departments=true')
+      .then(r => r.json())
+      .then((depts: string[]) => setAvailableDepartments(depts))
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = async () => {
     if (!formData.name) {
@@ -111,7 +120,7 @@ export default function DepartmentPlannerPage() {
           return;
         }
 
-        let successCount = 0;
+        const allStudentsData: any[] = [];
         for (const row of jsonRows) {
           console.log('Processing row:', row);
           // Robust mapping: check for various header variations
@@ -132,38 +141,45 @@ export default function DepartmentPlannerPage() {
             return '';
           };
 
-          const name = getValue(['name', 'student name', 'student_name']);
-          console.log('Mapped name:', name);
-          if (!name) continue; // Skip rows without a name
+        const name = getValue(['name', 'student name', 'student_name']);
+        console.log('Mapped name:', name);
+        if (!name) continue; // Skip rows without a name
 
-          const studentData = {
-            name,
-            reg_no: getValue(['reg_no', 'registration no', 'reg no', 'registration_no']),
-            roll: getValue(['roll', 'roll no', 'roll_no']),
-            no: getValue(['no', 'number', 'sl no', 'sl_no']),
-            sem: getValue(['sem', 'semester']),
-            type: getValue(['type', 'student type', 'student_type']),
-            inst_id: getValue(['inst_id', 'institution id', 'inst id', 'institution_id']),
-            inst_name: getValue(['inst_name', 'institution name', 'inst name', 'institution_name']),
-            exam_centre_code: getValue(['exam centre code', 'centre code', 'exam_centre_code', 'exam_cen']),
-            exam_centre_name: getValue(['exam centre name', 'centre name', 'exam_centre_name']),
-            email: 'Exam-2024',
-            rollRangeStart: '',
-            rollRangeEnd: '',
-            totalStudents: 1,
-            seatingPlan: 'Just Uploaded',
-          };
-          console.log('Mapped student data:', studentData);
-          await addStudent(studentData);
-          successCount++;
-        }
+        const studentData = {
+          name,
+          reg_no: getValue(['reg_no', 'registration no', 'reg no', 'registration_no']),
+          roll: getValue(['roll', 'roll no', 'roll_no']),
+          no: getValue(['no', 'number', 'sl no', 'sl_no']),
+          sem: getValue(['sem', 'semester']),
+          type: getValue(['type', 'student type', 'student_type']),
+          department: getValue(['department', 'dept', 'branch', 'branch name']),
+          inst_id: getValue(['inst_id', 'institution id', 'inst id', 'institution_id']),
+          inst_name: getValue(['inst_name', 'institution name', 'inst name', 'institution_name']),
+          exam_centre_code: getValue(['exam centre code', 'centre code', 'exam_centre_code', 'exam_cen']),
+          exam_centre_name: getValue(['exam centre name', 'centre name', 'exam_centre_name']),
+          email: 'Exam-2024',
+          rollRangeStart: '',
+          rollRangeEnd: '',
+          totalStudents: 1,
+          seatingPlan: 'Just Uploaded' as const,
+        };
+        allStudentsData.push(studentData);
+      }
+
+      if (allStudentsData.length > 0) {
+        console.log(`Attempting to upload ${allStudentsData.length} students in bulk...`);
+        await addStudentsBulk(allStudentsData);
+        toast.success(`Successfully uploaded ${allStudentsData.length} students to database`);
         
-        if (successCount > 0) {
-          toast.success(`Successfully registered ${successCount} departments from file`);
-        } else {
-          toast.error('No valid records found in file');
-        }
-      } catch (err) {
+        // Refresh departments list from DB
+        fetch('/api/students?departments=true')
+          .then(r => r.json())
+          .then((depts: string[]) => setAvailableDepartments(depts))
+          .catch(() => {});
+      } else {
+        toast.error('No valid records found in file. Make sure your file has a "name" column.');
+      }
+    } catch (err) {
         toast.error('Failed to parse file. Please ensure it is a valid CSV or Excel file.');
         console.error(err);
       } finally {
@@ -189,6 +205,7 @@ export default function DepartmentPlannerPage() {
       inst_name: '',
       exam_centre_code: '',
       exam_centre_name: '',
+      department: '',
       email: 'Midterm-Oct',
       rollRangeStart: '',
       rollRangeEnd: '',
@@ -211,6 +228,7 @@ export default function DepartmentPlannerPage() {
       inst_name: dept.inst_name || '',
       exam_centre_code: dept.exam_centre_code || '',
       exam_centre_name: dept.exam_centre_name || '',
+      department: (dept as any).department || '',
       email: dept.email || 'Midterm-Oct',
       rollRangeStart: dept.rollRangeStart || '',
       rollRangeEnd: dept.rollRangeEnd || '',
@@ -234,15 +252,66 @@ export default function DepartmentPlannerPage() {
       setDeptToDelete(null);
     }
   };
-
-  const filteredDepts = students.filter(
-    (dept) => {
-      if (!dept) return false;
-      const deptName = dept.name || '';
-      return deptName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (dept.id && dept.id.toLowerCase().includes(searchQuery.toLowerCase()));
+  
+  const handleDeleteAll = async () => {
+    setIsLoading(true);
+    try {
+      await deleteAllStudents();
+      toast.success('All records deleted successfully');
+      handleClear();
+    } catch (error) {
+      toast.error('Failed to delete all records');
+    } finally {
+      setIsLoading(false);
+      setShowDeleteAllConfirm(false);
     }
-  );
+  };
+
+  const availableSemesters = useMemo(() => {
+    const sems = new Set(students.map(s => s.sem).filter(Boolean));
+    return Array.from(sems).sort();
+  }, [students]);
+
+  const availableColleges = useMemo(() => {
+    const colleges = new Set(students.map(s => s.inst_name).filter(Boolean));
+    return Array.from(colleges).sort();
+  }, [students]);
+
+  const filteredDepts = students.filter((dept) => {
+    if (!dept) return false;
+    const deptName = dept.name || '';
+    const deptDept = (dept as any).department || '';
+    const matchesSearch =
+      deptName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (dept.reg_no || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (dept.roll || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+      deptDept.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesDept =
+      globalFilters.department === 'all' || deptDept === globalFilters.department;
+    const matchesSem =
+      globalFilters.semester === 'all' || (dept.sem === globalFilters.semester);
+    const matchesCollege =
+      globalFilters.college === 'all' || (dept.inst_name === globalFilters.college);
+    const matchesType =
+      globalFilters.type === 'all' || (dept.type === globalFilters.type);
+    return matchesSearch && matchesDept && matchesSem && matchesCollege && matchesType;
+  });
+
+  const statusOverview = useMemo(() => {
+    const groups: Record<string, { count: number, status: Student['seatingPlan'], dept: string, sem: string }> = {};
+    
+    students.forEach(s => {
+      const dept = (s as any).department || 'Unknown';
+      const sem = s.sem || 'N/A';
+      const key = `${dept}-${sem}`;
+      if (!groups[key]) {
+        groups[key] = { count: 0, status: s.seatingPlan || 'Not Started', dept, sem };
+      }
+      groups[key].count += 1;
+    });
+
+    return Object.values(groups).sort((a, b) => a.dept.localeCompare(b.dept));
+  }, [students]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -267,25 +336,6 @@ export default function DepartmentPlannerPage() {
           <div className="xl:col-span-4 space-y-6">
             <Card className="p-6 bg-card border">
               <h2 className="text-xl font-semibold mb-6">Data Entry Options</h2>
-              
-              <div className="mb-8">
-                <h3 className="text-lg font-medium mb-2">Batch Registration Upload (CSV / Excel)</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Quickly register multiple departments and student counts by uploading a CSV or Excel file.
-                </p>
-                <div className="border-[1.5px] border-dashed border-slate-300 dark:border-slate-700 bg-[#f8fafc] dark:bg-slate-900/50 rounded-lg p-8 text-center flex flex-col items-center justify-center gap-3 cursor-pointer hover:bg-slate-50 transition-colors" onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="h-8 w-8 text-[#8ea4c8] stroke-[2]" />
-                  <p className="text-[15px] font-medium text-[#1e3a5f] dark:text-slate-300 mb-1">Drop CSV/Excel file here or Click to select</p>
-                  <Button variant="outline" className="bg-white dark:bg-slate-800 text-slate-900 font-medium dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 h-9 px-4 rounded-md shadow-sm" disabled={isLoading} onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}>Upload & Preview Records</Button>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    accept=".csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel"
-                    className="hidden"
-                  />
-                </div>
-              </div>
 
               <div>
                 <h3 className="text-lg font-medium mb-4">Single Record Entry</h3>
@@ -364,6 +414,15 @@ export default function DepartmentPlannerPage() {
                     />
                   </div>
 
+                  <div className="space-y-2">
+                    <Label>Department</Label>
+                    <Input 
+                      value={formData.department} 
+                      onChange={(e) => setFormData({ ...formData, department: e.target.value })} 
+                      placeholder="e.g. Computer Science, Mechanical..."
+                    />
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Exam Centre Code</Label>
@@ -392,6 +451,34 @@ export default function DepartmentPlannerPage() {
                     </Button>
                   </div>
                 </div>
+
+                <div className="pt-6 border-t mt-6">
+                  <h3 className="text-lg font-medium mb-4 text-blue-600 dark:text-blue-400 flex items-center gap-2">
+                    <Upload className="h-5 w-5" />
+                    Bulk Records Import
+                  </h3>
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Upload an Excel (.xlsx) or CSV file with student records. The system will automatically map columns like name, roll, reg no, etc.
+                    </p>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      onChange={handleFileUpload} 
+                      accept=".csv, .xlsx, .xls" 
+                      className="hidden" 
+                    />
+                    <Button 
+                      onClick={() => fileInputRef.current?.click()} 
+                      disabled={isLoading}
+                      variant="outline"
+                      className="w-full border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900 flex items-center justify-center gap-2 h-12"
+                    >
+                      <Upload className="h-4 w-4" />
+                      {isLoading ? 'Processing File...' : 'Select Excel / CSV File'}
+                    </Button>
+                  </div>
+                </div>
               </div>
             </Card>
           </div>
@@ -401,14 +488,50 @@ export default function DepartmentPlannerPage() {
             <Card className="flex-1 p-6 bg-card flex flex-col">
               <h2 className="text-xl font-semibold mb-6">Registration Records & Status</h2>
               
-              <div className="relative mb-6">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  placeholder="Search Reg. ID or Dept..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
+              <div className="flex gap-3 mb-6">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                  <Input
+                    placeholder="Search name, reg no, roll..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+                {/* Global Filters Display */}
+                <div className="flex items-center gap-2 p-1.5 bg-slate-50 dark:bg-slate-900 rounded-lg border border-slate-200 dark:border-slate-800">
+                  <div className="px-3 py-1 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase">College:</span>
+                    <span className="text-[10px] font-bold">{globalFilters.college === 'all' ? 'All' : globalFilters.college}</span>
+                  </div>
+                  <div className="px-3 py-1 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase">Sem:</span>
+                    <span className="text-[10px] font-bold">{globalFilters.semester === 'all' ? 'All' : globalFilters.semester}</span>
+                  </div>
+                  <div className="px-3 py-1 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase">Dept:</span>
+                    <span className="text-[10px] font-bold">{globalFilters.department === 'all' ? 'All' : globalFilters.department}</span>
+                  </div>
+                  <div className="px-3 py-1 bg-white dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-700 flex items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase">Type:</span>
+                    <span className="text-[10px] font-bold">{globalFilters.type === 'all' ? 'All' : globalFilters.type}</span>
+                  </div>
+                </div>
+                {(globalFilters.department !== 'all' || globalFilters.semester !== 'all' || globalFilters.college !== 'all' || globalFilters.type !== 'all') && (
+                  <Button variant="outline" size="sm" onClick={() => setGlobalFilters({ college: 'all', semester: 'all', department: 'all', type: 'all' })} className="whitespace-nowrap">
+                    Clear Global Filters
+                  </Button>
+                )}
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => setShowDeleteAllConfirm(true)}
+                  disabled={students.length === 0 || isLoading}
+                  className="whitespace-nowrap flex items-center gap-2"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete All
+                </Button>
               </div>
 
               <div className="border rounded-md overflow-hidden flex-1">
@@ -416,6 +539,7 @@ export default function DepartmentPlannerPage() {
                   <TableHeader className="bg-white dark:bg-slate-950 border-b-2 border-slate-200 dark:border-slate-800">
                     <TableRow>
                       <TableHead className="font-semibold text-slate-900 dark:text-slate-100 py-3 whitespace-nowrap">sl. no.</TableHead>
+                      <TableHead className="font-semibold text-slate-900 dark:text-slate-100 py-3 whitespace-nowrap">Department</TableHead>
                       <TableHead className="font-semibold text-slate-900 dark:text-slate-100 py-3 whitespace-nowrap">reg_no</TableHead>
                       <TableHead className="font-semibold text-slate-900 dark:text-slate-100 py-3 whitespace-nowrap">name</TableHead>
                       <TableHead className="font-semibold text-slate-900 dark:text-slate-100 py-3 whitespace-nowrap">roll</TableHead>
@@ -441,6 +565,13 @@ export default function DepartmentPlannerPage() {
                         return (
                           <TableRow key={dept.id || `dept-${idx}`} className="cursor-pointer hover:bg-slate-50 transition-colors dark:hover:bg-slate-800/50" onClick={() => handleEdit(dept)}>
                             <TableCell className="font-medium">{idx + 1}</TableCell>
+                            <TableCell>
+                              {(dept as any).department ? (
+                                <Badge variant="outline" className="bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800 whitespace-nowrap">
+                                  {(dept as any).department}
+                                </Badge>
+                              ) : '-'}
+                            </TableCell>
                             <TableCell>{dept.reg_no || '-'}</TableCell>
                             <TableCell className="font-medium">{dept.name}</TableCell>
                             <TableCell>{dept.roll || '-'}</TableCell>
@@ -459,7 +590,7 @@ export default function DepartmentPlannerPage() {
                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100" onClick={(e) => { e.stopPropagation(); handleEdit(dept); }}>
                                   <Edit2 className="h-4 w-4" />
                                 </Button>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-red-600 dark:hover:text-red-400" onClick={(e) => { e.stopPropagation(); setDeptToDelete(dept.id); }}>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:text-red-300 dark:hover:bg-red-900/20" title="Delete Student" onClick={(e) => { e.stopPropagation(); setDeptToDelete(dept.id); }}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </div>
@@ -475,12 +606,22 @@ export default function DepartmentPlannerPage() {
 
             <Card className="p-6 bg-card">
               <h2 className="text-lg font-semibold mb-4">Seating Allocation Status Overview</h2>
-              <div className="space-y-1 text-[#1a1f36] dark:text-slate-300 font-medium text-[15px]">
-                <p>10-Oct: CE-III <span className="text-slate-500 font-normal">(planned: 8 students)</span> - Rooms Assigned</p>
-                <p>12-Oct: CST-V <span className="text-slate-500 font-normal">(planned: 15 students)</span> - Rooms Assigned</p>
-                <p>15-Oct: ME-IV <span className="text-slate-500 font-normal">(planned: 50 students)</span> - Allocation Pending</p>
-                <p>EE-VI & BBA-II - Not Started</p>
-                <p>Newly uploaded Chemical Eng. <span className="text-slate-500 font-normal">(20 students)</span> - Seating Plan Needed</p>
+              <div className="space-y-2 text-[#1a1f36] dark:text-slate-300 font-medium text-[15px]">
+                {statusOverview.length === 0 ? (
+                  <p className="text-muted-foreground font-normal">No student records imported yet.</p>
+                ) : (
+                  statusOverview.map((group, idx) => (
+                    <div key={idx} className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2 last:border-0">
+                      <div>
+                        <span>{group.dept} - {group.sem}</span>
+                        <span className="text-slate-500 font-normal ml-2">({group.count} students)</span>
+                      </div>
+                      <Badge variant="secondary" className={getStatusColor(group.status || 'Not Started')}>
+                        {group.status}
+                      </Badge>
+                    </div>
+                  ))
+                )}
               </div>
             </Card>
           </div>
@@ -500,6 +641,28 @@ export default function DepartmentPlannerPage() {
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               >
                 Delete
+              </AlertDialogAction>
+            </div>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Delete All Confirmation */}
+        <AlertDialog open={showDeleteAllConfirm} onOpenChange={setShowDeleteAllConfirm}>
+          <AlertDialogContent>
+            <AlertDialogTitle className="text-destructive flex items-center gap-2">
+              <Trash2 className="h-5 w-5" />
+              Delete All Students?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete <span className="font-bold text-foreground">{students.length}</span> registration records. This action cannot be undone and will clear all student data from the database.
+            </AlertDialogDescription>
+            <div className="flex gap-4 mt-4">
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteAll}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                Delete All
               </AlertDialogAction>
             </div>
           </AlertDialogContent>

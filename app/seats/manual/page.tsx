@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import * as XLSX from 'xlsx';
 import { useAppState, Student } from '@/hooks/use-app-state';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card } from '@/components/ui/card';
@@ -9,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Users,
   DoorOpen,
@@ -47,36 +49,49 @@ type RoomAllocation = {
   benchesPerRow: number;
 };
 
-const DEPARTMENTS = ['DCST', 'DME', 'DCE', 'DEE'];
 const PATTERNS = ['Z-Pattern (Zig-Zag)', 'Row-wise Linear', 'Column-wise Linear', 'Snake Pattern', 'Random Distribution'];
 
 export default function ManualAllocationPage() {
-  const { students, loadFromLocalStorage } = useAppState();
+  const { students, globalFilters, fetchData } = useAppState();
 
-  // Local state for the allocation process
+ 
+  const [DEPARTMENTS, setDEPARTMENTS] = useState<string[]>([]);
+
+
   const [roomName, setRoomName] = useState<string>('');
   const [seatingPattern, setSeatingPattern] = useState<string>(PATTERNS[0]);
   const [benchesPerRow, setBenchesPerRow] = useState<number>(2);
   const [numRows, setNumRows] = useState<number>(10);
   const [targetStudentCount, setTargetStudentCount] = useState<number>(0);
-  const [deptInputs, setDeptInputs] = useState<Record<string, number>>({
-    DCST: 0,
-    DME: 0,
-    DCE: 0,
-    DEE: 0,
-  });
+  const [deptInputs, setDeptInputs] = useState<Record<string, number>>({});
 
   const [allocatedStudentIds, setAllocatedStudentIds] = useState<Set<string>>(new Set());
   const [roomAllocations, setRoomAllocations] = useState<RoomAllocation[]>([]);
   const [isShuffling, setIsShuffling] = useState(false);
+  const [isLoadingDepts, setIsLoadingDepts] = useState(true);
 
   useEffect(() => {
-    loadFromLocalStorage();
+    // Fetch students from DB
+    fetchData();
+
+    // Restore saved allocations from localStorage
     const savedAllocations = localStorage.getItem('manual_room_allocations');
     const savedIds = localStorage.getItem('manual_allocated_student_ids');
     if (savedAllocations) setRoomAllocations(JSON.parse(savedAllocations));
     if (savedIds) setAllocatedStudentIds(new Set(JSON.parse(savedIds)));
-  }, [loadFromLocalStorage]);
+
+    // Fetch distinct departments from DB
+    fetch('/api/students?departments=true')
+      .then(r => r.json())
+      .then((depts: string[]) => {
+        const filtered = depts.filter(Boolean).sort();
+        setDEPARTMENTS(filtered);
+        setDeptInputs(Object.fromEntries(filtered.map(d => [d, 0])));
+      })
+      .catch(() => {})
+      .finally(() => setIsLoadingDepts(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Persist to local storage whenever allocations change
   useEffect(() => {
@@ -84,20 +99,36 @@ export default function ManualAllocationPage() {
     localStorage.setItem('manual_allocated_student_ids', JSON.stringify([...allocatedStudentIds]));
   }, [roomAllocations, allocatedStudentIds]);
 
-  // Group students by department and filter out already allocated ones
+  // Group students by department and filter out already allocated ones, respecting semester filter
   const availableStudentsByDept = useMemo(() => {
     const map = new Map<string, Student[]>();
     DEPARTMENTS.forEach(dept => map.set(dept, []));
 
     students.forEach(s => {
-      const dept = s.department || 'Other';
-      if (DEPARTMENTS.includes(dept) && !allocatedStudentIds.has(s.id)) {
+      const dept = (s as any).department || '';
+      const matchesSem = globalFilters.semester === 'all' || s.sem === globalFilters.semester;
+      const matchesCollege = globalFilters.college === 'all' || s.inst_name === globalFilters.college;
+      const matchesDept = globalFilters.department === 'all' || s.department === globalFilters.department;
+      const matchesType = globalFilters.type === 'all' || s.type === globalFilters.type;
+
+      if (dept && DEPARTMENTS.includes(dept) && !allocatedStudentIds.has(s.id) && matchesSem && matchesCollege && matchesDept && matchesType) {
+        if (!map.has(dept)) map.set(dept, []);
         map.get(dept)?.push(s);
       }
     });
 
     return map;
-  }, [students, allocatedStudentIds]);
+  }, [students, allocatedStudentIds, DEPARTMENTS, globalFilters]);
+
+  const availableSemesters = useMemo(() => {
+    const sems = new Set(students.map(s => s.sem).filter(Boolean));
+    return Array.from(sems).sort();
+  }, [students]);
+
+  const availableColleges = useMemo(() => {
+    const colleges = new Set(students.map(s => s.inst_name).filter(Boolean));
+    return Array.from(colleges).sort();
+  }, [students]);
 
   const totalAvailable = useMemo(() => {
     let count = 0;
@@ -285,8 +316,8 @@ export default function ManualAllocationPage() {
     setRoomAllocations(prev => [...prev, newRoom]);
     setAllocatedStudentIds(newLocalAllocatedIds);
 
-    // Reset inputs but maybe keep capacity/pattern
-    setDeptInputs({ DCST: 0, DME: 0, DCE: 0, DEE: 0 });
+    // Reset inputs but keep capacity/pattern
+    setDeptInputs(Object.fromEntries(DEPARTMENTS.map(d => [d, 0])));
     setRoomName('');
     toast.success(`${newRoom.roomName} allocated successfully!`);
   };
@@ -333,7 +364,7 @@ export default function ManualAllocationPage() {
     if (confirm('Are you sure you want to clear all allocations?')) {
       setRoomAllocations([]);
       setAllocatedStudentIds(new Set());
-      setDeptInputs({ DCST: 0, DME: 0, DCE: 0, DEE: 0 });
+      setDeptInputs(Object.fromEntries(DEPARTMENTS.map(d => [d, 0])));
       setBenchesPerRow(2);
       setNumRows(10);
       setTargetStudentCount(0);
@@ -423,8 +454,12 @@ export default function ManualAllocationPage() {
         
         room.layout.forEach(col => {
           const bench = col.benches[r];
-          rowData.push(bench?.left?.roll || bench?.left?.reg_no || '-');
-          rowData.push(bench?.right?.roll || bench?.right?.reg_no || '-');
+          // Prioritize Registration Number (reg_no) as requested
+          const leftVal = bench?.left?.reg_no || bench?.left?.roll || '-';
+          const rightVal = bench?.right?.reg_no || bench?.right?.roll || '-';
+          
+          rowData.push(leftVal);
+          rowData.push(rightVal);
         });
         body.push(rowData);
       }
@@ -601,36 +636,107 @@ export default function ManualAllocationPage() {
 
                 <Separator />
 
-                <div className="space-y-4">
-                  <Label className="text-sm font-semibold uppercase tracking-wider text-slate-500 block mb-2">
-                    Department Selection
-                  </Label>
-
-                  <div className="grid grid-cols-1 gap-3">
-                    {DEPARTMENTS.map((dept) => (
-                      <div key={dept} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-slate-50 dark:bg-slate-900 dark:border-slate-800 transition-colors hover:border-blue-200 shadow-sm">
-                        <div className="flex items-center gap-3">
-                          <Badge className="h-8 min-w-[50px] flex items-center justify-center font-bold bg-blue-600">
-                            {dept}
-                          </Badge>
-                          <div className="flex flex-col">
-                            <span className="text-[10px] text-slate-400 font-bold uppercase">Pool</span>
-                            <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
-                              {availableStudentsByDept.get(dept)?.length || 0}
-                            </span>
-                          </div>
-                        </div>
-                        <Input
-                          type="number"
-                          min={0}
-                          max={availableStudentsByDept.get(dept)?.length || 0}
-                          value={deptInputs[dept]}
-                          onChange={(e) => handleDeptInputChange(dept, e.target.value)}
-                          className="w-20 h-9 text-center font-bold"
-                        />
+                  <div className="space-y-4">
+                    {/* Filters are now managed Globally via the Top Bar */}
+                    <div className="flex items-center gap-2 p-1.5 bg-blue-50/50 dark:bg-blue-900/10 rounded-xl border border-blue-100/50 dark:border-blue-800/50">
+                      <div className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 shadow-sm border border-blue-100 dark:border-blue-800 flex items-center gap-2">
+                        <span className="text-[10px] font-black text-blue-500 uppercase">College:</span>
+                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{globalFilters.college === 'all' ? 'Every College' : globalFilters.college}</span>
                       </div>
-                    ))}
+                      <div className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 shadow-sm border border-blue-100 dark:border-blue-800 flex items-center gap-2">
+                        <span className="text-[10px] font-black text-blue-500 uppercase">Sem:</span>
+                        <span className="text-[10px] font-bold text-slate-700 dark:text-slate-300">{globalFilters.semester === 'all' ? 'All' : globalFilters.semester}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+                        Department Selection
+                      </Label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          const all: Record<string, number> = {};
+                          DEPARTMENTS.forEach(d => { all[d] = availableStudentsByDept.get(d)?.length || 0; });
+                          setDeptInputs(all);
+                        }}
+                        className="text-[10px] font-bold text-blue-600 hover:underline uppercase tracking-wide"
+                      >Select All</button>
+                      <span className="text-slate-300">|</span>
+                      <button
+                        onClick={() => setDeptInputs(Object.fromEntries(DEPARTMENTS.map(d => [d, 0])))}
+                        className="text-[10px] font-bold text-slate-400 hover:underline uppercase tracking-wide"
+                      >Clear</button>
+                    </div>
                   </div>
+
+                  {isLoadingDepts ? (
+                    <div className="text-sm text-center text-slate-400 py-4">Loading departments from database...</div>
+                  ) : DEPARTMENTS.length === 0 ? (
+                    <div className="text-sm text-center text-slate-400 py-4">
+                      No departments found in the database.<br />
+                      <span className="text-xs">Add students with a department field first.</span>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2">
+                      {DEPARTMENTS.map((dept) => {
+                        const pool = availableStudentsByDept.get(dept)?.length || 0;
+                        const selected = deptInputs[dept] ?? 0;
+                        const isActive = selected > 0;
+                        return (
+                          <div
+                            key={dept}
+                            onClick={() => {
+                              if (pool === 0) return;
+                              setDeptInputs(prev => ({
+                                ...prev,
+                                [dept]: isActive ? 0 : pool
+                              }));
+                            }}
+                            className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition-all select-none ${
+                              pool === 0
+                                ? 'opacity-40 cursor-not-allowed border-slate-100 bg-slate-50 dark:bg-slate-900 dark:border-slate-800'
+                                : isActive
+                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-500 shadow-md'
+                                : 'border-slate-200 bg-slate-50 dark:bg-slate-900 dark:border-slate-800 hover:border-blue-300'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                                isActive ? 'border-blue-500 bg-blue-500' : 'border-slate-300'
+                              }`}>
+                                {isActive && (
+                                  <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                )}
+                              </div>
+                              <Badge className={`h-8 min-w-[55px] flex items-center justify-center font-bold ${isActive ? 'bg-blue-600' : 'bg-slate-400'}`}>
+                                {dept}
+                              </Badge>
+                              <div className="flex flex-col">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase">In Database</span>
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                  {pool} students
+                                </span>
+                              </div>
+                            </div>
+                            <div className="text-right flex flex-col items-end" onClick={(e) => e.stopPropagation()}>
+                              <span className="text-[10px] text-slate-400 font-bold uppercase block mb-1">Select Count</span>
+                              <Input 
+                                type="number"
+                                min={0}
+                                max={pool}
+                                value={selected}
+                                onChange={(e) => handleDeptInputChange(dept, e.target.value)}
+                                className="w-20 h-9 text-right font-black text-blue-600 bg-white dark:bg-slate-950 border-blue-400 focus:ring-blue-500 shadow-sm"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-4 space-y-3">
@@ -749,15 +855,12 @@ export default function ManualAllocationPage() {
                     </div>
                     <div className="p-6">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {DEPARTMENTS.map((dept) => {
-                          const alloc = room.allocations.find(a => a.dept === dept);
-                          return (
-                            <div key={dept} className="bg-slate-50 dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-                              <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{dept}</span>
-                              <div className="text-xl font-black text-slate-800 dark:text-slate-200">{alloc?.students.length || 0}</div>
-                            </div>
-                          );
-                        })}
+                        {room.allocations.map((alloc) => (
+                          <div key={alloc.dept} className="bg-slate-50 dark:bg-slate-900/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
+                            <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{alloc.dept}</span>
+                            <div className="text-xl font-black text-slate-800 dark:text-slate-200">{alloc.students.length}</div>
+                          </div>
+                        ))}
                       </div>
 
                       {/* Seat Map Visualization */}

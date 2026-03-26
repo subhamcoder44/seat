@@ -152,7 +152,8 @@ export default function SmartSeatAllocationPage() {
           allIndividuals.push({
             deptId: student.id,
             deptName: student.name.split('-')[0] || student.name,
-            roll: student.roll || student.reg_no || `ID-${student.id.substring(0,4)}`,
+            // Prioritize Registration Number (reg_no) as requested
+            roll: student.reg_no || student.roll || `ID-${student.id.substring(0,4)}`,
             color: color
           });
         }
