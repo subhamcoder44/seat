@@ -14,7 +14,11 @@ export async function GET(req: NextRequest) {
     if (distinctDepts === 'true') {
       const depts = await Student.distinct('department');
       return NextResponse.json(depts.filter(Boolean).sort());
+
+
+      
     }
+
 
     const query: Record<string, any> = {};
     if (department && department !== 'all') {
