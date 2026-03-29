@@ -73,6 +73,11 @@ export default function ManualAllocationPage() {
   const [smartDistribute, setSmartDistribute] = useState(true);
   const [isLoadingDepts, setIsLoadingDepts] = useState(true);
 
+  // Always-fresh ref so downloadPDF never captures a stale closure
+  const roomAllocationsRef = useRef<RoomAllocation[]>([]);
+  // Stable room counter: never resets even across state batches
+  const roomCounterRef = useRef<number>(0);
+
   useEffect(() => {
     // Fetch students from DB
     fetchData();
@@ -80,7 +85,12 @@ export default function ManualAllocationPage() {
     // Restore saved allocations from localStorage
     const savedAllocations = localStorage.getItem('manual_room_allocations');
     const savedIds = localStorage.getItem('manual_allocated_student_ids');
-    if (savedAllocations) setRoomAllocations(JSON.parse(savedAllocations));
+    if (savedAllocations) {
+      const parsed: RoomAllocation[] = JSON.parse(savedAllocations);
+      setRoomAllocations(parsed);
+      // Restore room counter so next allocation continues from the right number
+      roomCounterRef.current = parsed.length;
+    }
     if (savedIds) setAllocatedStudentIds(new Set(JSON.parse(savedIds)));
 
     // Fetch distinct departments from DB
@@ -96,10 +106,17 @@ export default function ManualAllocationPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the ref in sync with state on every render (no dependency array needed)
+  roomAllocationsRef.current = roomAllocations;
+
   // Persist to local storage whenever allocations change
   useEffect(() => {
     localStorage.setItem('manual_room_allocations', JSON.stringify(roomAllocations));
     localStorage.setItem('manual_allocated_student_ids', JSON.stringify([...allocatedStudentIds]));
+    // Keep room counter in sync with persisted allocations
+    if (roomAllocations.length > roomCounterRef.current) {
+      roomCounterRef.current = roomAllocations.length;
+    }
   }, [roomAllocations, allocatedStudentIds]);
 
   // Group students by department and filter out already allocated ones, respecting semester filter
@@ -329,9 +346,15 @@ export default function ManualAllocationPage() {
       });
     }
 
+    // Use the stable ref counter (never stale, never batched)
+    const capturedRoomName = roomName; // capture before reset
+    roomCounterRef.current += 1;
+    const nextNumber = roomCounterRef.current;
+    const assignedRoomName = capturedRoomName || `Room ${nextNumber}`;
+
     const newRoom: RoomAllocation = {
-      roomNumber: roomAllocations.length + 1,
-      roomName: roomName || `Room ${roomAllocations.length + 1}`,
+      roomNumber: nextNumber,
+      roomName: assignedRoomName,
       pattern: seatingPattern,
       capacity: benchesPerRow * numRows * 2,
       allocations: newAllocations,
@@ -347,7 +370,7 @@ export default function ManualAllocationPage() {
     // Reset inputs but keep capacity/pattern
     setDeptInputs(Object.fromEntries(DEPARTMENTS.map(d => [d, 0])));
     setRoomName('');
-    toast.success(`${newRoom.roomName} allocated successfully!`);
+    toast.success(`${assignedRoomName} allocated successfully!`);
   };
 
   const handleAutoFill = () => {
@@ -398,6 +421,8 @@ export default function ManualAllocationPage() {
       setTargetStudentCount(0);
       setRoomName('');
       setSeatingPattern(PATTERNS[0]);
+      // Reset the stable counter so next allocation starts at Room 1 again
+      roomCounterRef.current = 0;
       localStorage.removeItem('manual_room_allocations');
       localStorage.removeItem('manual_allocated_student_ids');
       toast.info('All allocations cleared');
@@ -414,8 +439,25 @@ export default function ManualAllocationPage() {
     return mapping[dept] || dept;
   };
 
-  const downloadPDF = () => {
-    if (roomAllocations.length === 0) {
+  // Color palette for departments in PDF (RGB arrays)
+  const DEPT_PDF_COLORS: Record<string, [number, number, number]> = {
+    'DCST': [173, 216, 230],  // Light Blue
+    'DCE':  [255, 200, 120],  // Orange
+    'DME':  [255, 182, 193],  // Light Pink/Red
+    'DEE':  [216, 191, 216],  // Light Purple
+  };
+  const DEPT_PDF_COLORS_DEFAULT: [number, number, number] = [198, 239, 206]; // Light Green for others
+
+  const getDeptColor = (dept: string): [number, number, number] => {
+    return DEPT_PDF_COLORS[dept] ?? DEPT_PDF_COLORS_DEFAULT;
+  };
+
+  const downloadPDF = (specificRoom?: RoomAllocation) => {
+    // If specificRoom is provided, only export that one. 
+    // Otherwise, always read from the ref to avoid stale closures.
+    const latestAllocations = specificRoom ? [specificRoom] : roomAllocationsRef.current;
+    
+    if (latestAllocations.length === 0) {
       toast.error('No allocations to export');
       return;
     }
@@ -426,41 +468,65 @@ export default function ManualAllocationPage() {
       format: 'a4'
     });
 
-    roomAllocations.forEach((room, roomIdx) => {
+    latestAllocations.forEach((room, roomIdx) => {
       if (roomIdx > 0) doc.addPage();
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      // ── Top banner: Room name/number ──────────────────────────────────────
+      const bannerH = 28;
+      doc.setFillColor(30, 30, 80);                        // dark navy
+      doc.rect(0, 0, pageWidth, bannerH, 'F');
+
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(255, 255, 255);
+      doc.text(`ROOM : ${room.roomName.toUpperCase()}`, pageWidth / 2, 19, { align: 'center' });
+
+      // Reset text color for the rest
+      doc.setTextColor(0, 0, 0);
+      // ─────────────────────────────────────────────────────────────────────
 
       // Get all unique branch names for the top header
       const uniqueDepts = Array.from(new Set(room.allocations.map(a => a.dept)));
       const branchSummary = uniqueDepts.map(d => getBranchName(d)).join(' & ');
-      const headerTitle = `ROOM ${room.roomNumber} - ${branchSummary}`.toUpperCase();
+      // FIX: Use room.roomName (user-defined) instead of room.roomNumber (sequential index)
+      const headerTitle = `${room.roomName.toUpperCase()} - ${branchSummary.toUpperCase()}`;
 
       // Table Header Row 1: Room Name + Branches
       const head1 = [
-        { content: headerTitle, colSpan: 1 + (room.layout.length * 2), styles: { halign: 'center', fillColor: [255, 255, 255], textColor: [0, 0, 0], fontStyle: 'bold', fontSize: 13 } } as any
+        { content: headerTitle, colSpan: 1 + (room.layout.length * 2), styles: { halign: 'center', fillColor: [30, 30, 80], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 13 } } as any
       ];
 
-      // Table Header Row 2: "BRANCH" + Aisle Departments
-      const head2: any[] = [{ content: 'BRANCH', styles: { halign: 'center', fontStyle: 'bold' } }];
+      // Table Header Row 2: "BRANCH" + Aisle Departments with per-dept color
+      const head2: any[] = [{ content: 'BRANCH', styles: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240], textColor: [0,0,0] } }];
       room.layout.forEach(col => {
         const uniqueDeptsInAisle = Array.from(new Set(
-          col.benches.flatMap(b => [b.left?.department, b.right?.department].filter(Boolean))
+          col.benches.flatMap(b => [b.left?.department, b.right?.department].filter(Boolean) as string[])
         ));
-        const aisleBranchNames = uniqueDeptsInAisle.map(d => getBranchName(d!)).join(' & ');
-        const hasCivil = uniqueDeptsInAisle.includes('DCE');
-        
+        const aisleBranchNames = uniqueDeptsInAisle.map(d => getBranchName(d)).join(' & ');
+
+        // Pick color: if single dept use its color, else blend to light gray
+        let fillColor: [number, number, number];
+        if (uniqueDeptsInAisle.length === 1) {
+          fillColor = getDeptColor(uniqueDeptsInAisle[0]);
+        } else {
+          fillColor = [220, 220, 220]; // mixed aisle = gray
+        }
+
         head2.push({ 
           content: aisleBranchNames, 
           colSpan: 2, 
           styles: { 
             halign: 'center', 
-            fillColor: hasCivil ? [255, 165, 0] : [255, 255, 255], // Orange if Civil is present
+            fillColor,
             textColor: [0, 0, 0],
             fontStyle: 'bold'
           } 
         } as any);
       });
 
-      // Body Rows: "REGISTRATION NUMBER" + Student IDs
+      // Body Rows: "REGISTRATION NUMBER" + Student IDs with per-cell dept color
       const body: any[] = [];
       for (let r = 0; r < room.numRows; r++) {
         const rowData: any[] = [];
@@ -472,36 +538,66 @@ export default function ManualAllocationPage() {
               valign: 'middle', 
               halign: 'center', 
               cellWidth: 40,
-              minCellHeight: 200, // Approximate
+              minCellHeight: 200,
               fontSize: 10,
-              fontStyle: 'bold'
-              // Note: Rotation is handled in didDrawCell
+              fontStyle: 'bold',
+              fillColor: [240, 240, 240],
+              textColor: [0, 0, 0]
             } 
           } as any);
         }
         
         room.layout.forEach(col => {
           const bench = col.benches[r];
-          // Prioritize Registration Number (reg_no) as requested
-          const leftVal = bench?.left?.reg_no || bench?.left?.roll || '-';
-          const rightVal = bench?.right?.reg_no || bench?.right?.roll || '-';
-          
-          rowData.push(leftVal);
-          rowData.push(rightVal);
+          const leftStudent = bench?.left;
+          const rightStudent = bench?.right;
+          const leftVal = (leftStudent?.reg_no?.trim() || leftStudent?.roll?.trim() || leftStudent?.name?.trim() || '-');
+          const rightVal = (rightStudent?.reg_no?.trim() || rightStudent?.roll?.trim() || rightStudent?.name?.trim() || '-');
+
+          // Color cell background based on department
+          if (leftStudent) {
+            rowData.push({
+              content: leftVal,
+              styles: {
+                fillColor: getDeptColor(leftStudent.department),
+                textColor: [0, 0, 0],
+                halign: 'center'
+              }
+            } as any);
+          } else {
+            rowData.push({ content: '-', styles: { halign: 'center', textColor: [180, 180, 180] } } as any);
+          }
+
+          if (rightStudent) {
+            rowData.push({
+              content: rightVal,
+              styles: {
+                fillColor: getDeptColor(rightStudent.department),
+                textColor: [0, 0, 0],
+                halign: 'center'
+              }
+            } as any);
+          } else {
+            rowData.push({ content: '-', styles: { halign: 'center', textColor: [180, 180, 180] } } as any);
+          }
         });
         body.push(rowData);
       }
 
       // Footer Row: TOTAL
-      const foot = [{ content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold' } }];
+      const foot = [{ content: 'TOTAL', styles: { halign: 'center', fontStyle: 'bold', fillColor: [30, 30, 80], textColor: [255, 255, 255] } }];
       room.layout.forEach(col => {
         const aisleTotal = col.benches.reduce((sum, b) => sum + (b.left ? 1 : 0) + (b.right ? 1 : 0), 0);
-        foot.push({ content: aisleTotal.toString(), colSpan: 2, styles: { halign: 'center', fontStyle: 'bold' } } as any);
+        foot.push({ content: aisleTotal.toString(), colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: [30, 30, 80], textColor: [255, 255, 255] } } as any);
       });
       body.push(foot);
 
+      // Color legend for departments
+      const allDeptsInRoom = Array.from(new Set(room.allocations.map(a => a.dept)));
+      const legendText = allDeptsInRoom.map(d => `${d}: ${getBranchName(d)}`).join('   |   ');
+
       autoTable(doc, {
-        startY: 40,
+        startY: 36,
         head: [head1, head2],
         body: body,
         theme: 'grid',
@@ -525,32 +621,39 @@ export default function ManualAllocationPage() {
              doc.saveGraphicsState();
              doc.setFontSize(10);
              doc.setFont('helvetica', 'bold');
-             
-             // Move to center of cell
-             const centerX = x + width / 2;
-             const centerY = y + height / 2;
-             
-             // Rotate 90 degrees counter-clockwise
-             doc.beginFormObject(centerX - 100, centerY - 100, 200, 200, [1, 0, 0, 1, 0, 0]); // dummy matrix
-             // Actually doc.text with angle is easier in modern jsPDF
              doc.restoreGraphicsState();
-             
-             // Clean up cell content first by drawing over it if needed (but it's already empty if we didn't specify text)
-             // Modern jsPDF text rotation:
              const text = 'REGISTRATION NUMBER';
              const textWidth = doc.getTextWidth(text);
              doc.text(text, x + (width/2) + 4, y + (height/2) + (textWidth/2), { angle: 90 });
-             
-             // Prevent default text drawing
              data.cell.text = ['']; 
           }
         },
-        margin: { left: 40, right: 40 },
+        didDrawPage: (data) => {
+          // Draw legend at bottom of each page
+          const pageHeight = doc.internal.pageSize.getHeight();
+          doc.setFontSize(7);
+          doc.setTextColor(80, 80, 80);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`COLOR LEGEND:  ${legendText}`, 40, pageHeight - 18);
+
+          // Draw colored squares for legend
+          let legendX = 40 + doc.getTextWidth('COLOR LEGEND:  ');
+          allDeptsInRoom.forEach(dept => {
+            const color = getDeptColor(dept);
+            doc.setFillColor(color[0], color[1], color[2]);
+            doc.rect(legendX - doc.getTextWidth(`${dept}: ${getBranchName(dept)}`) - 8, pageHeight - 23, 6, 6, 'F');
+          });
+        },
+        margin: { left: 40, right: 40, bottom: 30 },
       });
     });
 
-    doc.save(`Seat_Allocation_${new Date().toLocaleDateString()}.pdf`);
-    toast.success('Grid-style allocation report downloaded');
+    const fileName = specificRoom 
+      ? `Seat_Allocation_${specificRoom.roomName}_${new Date().toLocaleDateString()}.pdf`
+      : `Complete_Seat_Allocation_${new Date().toLocaleDateString()}.pdf`;
+
+    doc.save(fileName);
+    toast.success(specificRoom ? `Room ${specificRoom.roomName} PDF ready` : 'Full PDF report ready');
   };
 
   return (
@@ -906,6 +1009,14 @@ export default function ManualAllocationPage() {
                           <h4 className="font-black text-slate-900 dark:text-white tracking-tight leading-none uppercase">{room.roomName}</h4>
                           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{room.pattern}</span>
                         </div>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => downloadPDF(room)}
+                          className="ml-2 h-8 w-8 p-0 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                        >
+                          <Download className="h-4 w-4" />
+                        </Button>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-right hidden sm:block">
