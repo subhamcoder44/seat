@@ -17,7 +17,8 @@ import {
   FileText,
   CalendarDays,
   Briefcase,
-  ClipboardList, // Added ClipboardList icon
+  ClipboardList,
+  FlaskConical,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -27,6 +28,7 @@ const navigationItems = [
   { href: '/students', label: 'Students', icon: Users },
   { href: '/seats', label: 'Smart Allocation', icon: Grid3x3 },
   { href: '/seats/manual', label: 'Manual Allocation', icon: Users },
+  { href: '/pharmacy', label: 'Pharmacy Allocation', icon: FlaskConical },
   { href: '/packet-list', label: 'Packet List', icon: Package },
   { href: '/top-sheet', label: 'Top Sheet', icon: FileText },
   { href: '/duty-chart', label: 'Duty Chart', icon: CalendarDays },

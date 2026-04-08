@@ -59,6 +59,7 @@ export default function DepartmentPlannerPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [availableDepartments, setAvailableDepartments] = useState<string[]>([]);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [bulkInstName, setBulkInstName] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -153,8 +154,8 @@ export default function DepartmentPlannerPage() {
           sem: getValue(['sem', 'semester']),
           type: getValue(['type', 'student type', 'student_type']),
           department: getValue(['department', 'dept', 'branch', 'branch name']),
-          inst_id: getValue(['inst_id', 'institution id', 'inst id', 'institution_id']),
-          inst_name: getValue(['inst_name', 'institution name', 'inst name', 'institution_name']),
+          inst_id: getValue(['inst_id', 'institution id', 'inst id', 'institution_id', 'institute id', 'institute_id', 'instituteid']),
+          inst_name: bulkInstName.trim() || getValue(['inst_name', 'institution name', 'inst name', 'institution_name', 'institute name', 'institute_name', 'institute', 'college', 'college name']),
           exam_centre_code: getValue(['exam centre code', 'centre code', 'exam_centre_code', 'exam_cen']),
           exam_centre_name: getValue(['exam centre name', 'centre name', 'exam_centre_name']),
           email: 'Exam-2024',
@@ -461,6 +462,14 @@ export default function DepartmentPlannerPage() {
                     <p className="text-sm text-muted-foreground">
                       Upload an Excel (.xlsx) or CSV file with student records. The system will automatically map columns like name, roll, reg no, etc.
                     </p>
+                    <div className="space-y-2">
+                      <Label>Institution Name (Optional)</Label>
+                      <Input 
+                        placeholder="Apply this institution name to all uploaded records"
+                        value={bulkInstName}
+                        onChange={(e) => setBulkInstName(e.target.value)}
+                      />
+                    </div>
                     <input 
                       type="file" 
                       ref={fileInputRef} 
