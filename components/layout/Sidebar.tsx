@@ -26,13 +26,12 @@ const navigationItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/rooms', label: 'Rooms', icon: DoorOpen },
   { href: '/students', label: 'Students', icon: Users },
-  { href: '/seats', label: 'Smart Allocation', icon: Grid3x3 },
   { href: '/seats/manual', label: 'Manual Allocation', icon: Users },
   { href: '/pharmacy', label: 'Pharmacy Allocation', icon: FlaskConical },
   { href: '/packet-list', label: 'Packet List', icon: Package },
   { href: '/top-sheet', label: 'Top Sheet', icon: FileText },
-  { href: '/duty-chart', label: 'Duty Chart', icon: CalendarDays },
-
+  { href: '/invigilation-duty', label: 'Invigilation Chart', icon: ClipboardList },
+  { href: '/reports/attendance', label: 'Attendance Sheet', icon: ClipboardList },
   { href: '/reports', label: 'Reports', icon: BarChart3 },
 ];
 

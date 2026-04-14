@@ -412,21 +412,20 @@ export default function ManualAllocationPage() {
   };
 
   const clearAllocations = () => {
-    if (confirm('Are you sure you want to clear all allocations?')) {
-      setRoomAllocations([]);
-      setAllocatedStudentIds(new Set());
-      setDeptInputs(Object.fromEntries(DEPARTMENTS.map(d => [d, 0])));
-      setBenchesPerRow(2);
-      setNumRows(10);
-      setTargetStudentCount(0);
-      setRoomName('');
-      setSeatingPattern(PATTERNS[0]);
-      // Reset the stable counter so next allocation starts at Room 1 again
-      roomCounterRef.current = 0;
-      localStorage.removeItem('manual_room_allocations');
-      localStorage.removeItem('manual_allocated_student_ids');
-      toast.info('All allocations cleared');
-    }
+    setRoomAllocations([]);
+    setAllocatedStudentIds(new Set());
+    setDeptInputs(Object.fromEntries(DEPARTMENTS.map(d => [d, 0])));
+    setBenchesPerRow(2);
+    setNumRows(10);
+    setTargetStudentCount(0);
+    setRoomName('');
+    setSeatingPattern(PATTERNS[0]);
+    // Reset the stable counter so next allocation starts at Room 1 again
+    roomCounterRef.current = 0;
+    localStorage.removeItem('manual_room_allocations');
+    localStorage.removeItem('manual_allocated_student_ids');
+    resetFilters();
+    toast.info('All allocations cleared');
   };
 
   const getBranchName = (dept: string) => {
@@ -693,7 +692,7 @@ export default function ManualAllocationPage() {
               </div>
 
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="roomName" className="text-sm font-semibold uppercase tracking-wider text-slate-500">
                       Room Number / Name
@@ -946,7 +945,7 @@ export default function ManualAllocationPage() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-sm font-bold mb-3 uppercase tracking-widest text-blue-300/60">Live Statistics</h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="flex flex-col">
                       <span className="text-[10px] text-blue-300/40 uppercase font-black">Total Pool</span>
                       <span className="text-xl font-black">{students.length}</span>
@@ -977,7 +976,7 @@ export default function ManualAllocationPage() {
                 Allocation History
               </h2>
               <Button
-                onClick={downloadPDF}
+                onClick={() => downloadPDF()}
                 disabled={roomAllocations.length === 0}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2 shadow-lg shadow-emerald-500/20"
               >

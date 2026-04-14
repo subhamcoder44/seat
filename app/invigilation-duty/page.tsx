@@ -1,347 +1,429 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAppState } from '@/hooks/use-app-state';
-import { CalendarDays, Printer, ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { 
+  CalendarDays, 
+  Printer, 
+  Plus, 
+  Trash2, 
+  Upload, 
+  Settings2,
+  Table as TableIcon,
+  Save,
+  RefreshCw,
+  FileCheck
+} from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { toast } from 'sonner';
 
-type DateColumn = {
+interface DateColumn {
   id: string;
-  label: string; 
-  hasH2: boolean;
-};
+  label: string;
+  shifts: string[]; // e.g. ["H1", "H2", "H3", "H4"]
+}
 
-type InvigilatorRow = {
+interface TeacherRow {
   id: string;
   name: string;
-  // Maps a cell key to a value. Cell key format: "dateId-H1" or "dateId-H2"
-  assignments: Record<string, string>;
-};
+  roomNo: string;
+  isHighlighted: boolean;
+  assignments: Record<string, string>; // cellKey format: "dateId-shiftLabel"
+}
 
-export default function DutyChartPage() {
-  const { fetchData } = useAppState();
+export default function InvigilationDutyPage() {
+  const [institution, setInstitution] = useState('BPC INSTITUTE OF TECHNOLOGY');
+  const [address, setAddress] = useState('Krishnagar, Nadia');
+  const [session, setSession] = useState('Academic Session 2025-2026');
+  const [examName, setExamName] = useState('Even Semester 1st Internal Examination');
   
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  // Stats
+  const [stats, setStats] = useState({
+    rooms: '12',
+    invigilators: '35',
+    groupD: '10'
+  });
 
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  // Form Headers
-  const [institutionName, setInstitutionName] = useState('BPC Institute of Technology, Krishnagar, Nadia');
-  const [academicSession, setAcademicSession] = useState('2025-2026');
-  const [examinationType, setExaminationType] = useState('Diploma');
-
-  // Dynamic Grid Data
   const [dates, setDates] = useState<DateColumn[]>([
-    { id: 'd1', label: '13-Jan', hasH2: true },
-    { id: 'd2', label: '14-Jan', hasH2: true },
-    { id: 'd3', label: '15-Jan', hasH2: true },
-    { id: 'd4', label: '16-Jan', hasH2: true },
-    { id: 'd5', label: '17-Jan', hasH2: true },
-    { id: 'd6', label: '18-Jan', hasH2: false },
-    { id: 'd7', label: '19-Jan', hasH2: false },
-    { id: 'd8', label: '20-Jan', hasH2: false },
-    { id: 'd9', label: '21-Jan', hasH2: false },
-    { id: 'd10', label: '21-Jan', hasH2: false },
+    { id: 'd1', label: '06-Apr', shifts: ['H1', 'H2', 'H3', 'H4'] },
+    { id: 'd2', label: '07-Apr', shifts: ['H1', 'H2', 'H3', 'H4'] },
   ]);
 
-  const [rows, setRows] = useState<InvigilatorRow[]>([
-    { id: 'r1', name: '', assignments: {} },
-    { id: 'r2', name: '', assignments: {} },
-    { id: 'r3', name: '', assignments: {} },
-    { id: 'r4', name: '', assignments: {} },
-    { id: 'r5', name: '', assignments: {} },
-    { id: 'r6', name: '', assignments: {} },
+  const [teachers, setTeachers] = useState<TeacherRow[]>([
+    { id: 't1', name: 'Dr. Indranil Kundu', roomNo: '101', isHighlighted: true, assignments: {} },
+    { id: 't2', name: 'Miss Madhabi Biswas', roomNo: '102', isHighlighted: false, assignments: {} },
   ]);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Stats Logic - Auto calculate no of invigilators
+  const autoInvCount = useMemo(() => {
+    const assigned = new Set();
+    teachers.forEach(t => {
+      if (Object.values(t.assignments).some(v => v === '1')) {
+        assigned.add(t.id);
+      }
+    });
+    return assigned.size;
+  }, [teachers]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+        
+        const newTeachers: TeacherRow[] = data
+          .slice(1) // Skip header
+          .filter(row => row[0] || row[1])
+          .map((row, idx) => ({
+            id: `t-${Date.now()}-${idx}`,
+            name: String(row[1] || row[0] || '').trim(),
+            roomNo: '',
+            isHighlighted: false,
+            assignments: {}
+          }));
+          
+        if (newTeachers.length > 0) {
+          setTeachers(newTeachers);
+          toast.success(`Imported ${newTeachers.length} invigilators`);
+        }
+      } catch (err) {
+        toast.error("Failed to parse file");
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
 
   const addDate = () => {
-    setDates([...dates, { id: `d${Date.now()}`, label: 'New', hasH2: true }]);
+    const d = new Date();
+    setDates([...dates, { id: `d${Date.now()}`, label: 'New Date', shifts: ['H1', 'H2', 'H3', 'H4'] }]);
   };
 
-  const removeDate = (id: string) => {
-    setDates(dates.filter(d => d.id !== id));
+  const addTeacher = () => {
+    setTeachers([...teachers, { id: `t${Date.now()}`, name: '', roomNo: '', isHighlighted: false, assignments: {} }]);
   };
 
-  const updateDateLabel = (id: string, label: string) => {
-    setDates(dates.map(d => d.id === id ? { ...d, label } : d));
+  const toggleHighlight = (id: string) => {
+    setTeachers(teachers.map(t => t.id === id ? { ...t, isHighlighted: !t.isHighlighted } : t));
   };
 
-  const toggleH2 = (id: string) => {
-    setDates(dates.map(d => d.id === id ? { ...d, hasH2: !d.hasH2 } : d));
-  };
-
-  const addRow = () => {
-    setRows([...rows, { id: `r${Date.now()}`, name: '', assignments: {} }]);
-  };
-
-  const removeRow = (id: string) => {
-    setRows(rows.filter(r => r.id !== id));
-  };
-
-  const updateRowName = (id: string, name: string) => {
-    setRows(rows.map(r => r.id === id ? { ...r, name } : r));
-  };
-
-  const updateAssignment = (rowId: string, cellKey: string, value: string) => {
-    setRows(rows.map(r => {
-      if (r.id === rowId) {
-        return {
-          ...r,
-          assignments: {
-            ...r.assignments,
-            [cellKey]: value
-          }
-        };
+  const updateAssignment = (tId: string, cellKey: string, val: string) => {
+    setTeachers(teachers.map(t => {
+      if (t.id === tId) {
+        return { ...t, assignments: { ...t.assignments, [cellKey]: val } };
       }
-      return r;
+      return t;
     }));
   };
 
-  const handlePrint = () => {
-    window.print();
+  const generatePDF = () => {
+    const doc = new jsPDF({
+      orientation: 'landscape',
+      unit: 'pt',
+      format: 'a4'
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    
+    // Custom Header Styling
+    doc.setFont('times', 'bold');
+    doc.setFontSize(14);
+    doc.text(institution, pageWidth / 2, 40, { align: 'center' });
+    
+    doc.setFontSize(11);
+    doc.setFont('times', 'normal');
+    doc.text(address, pageWidth / 2, 55, { align: 'center' });
+    doc.text(session, pageWidth / 2, 70, { align: 'center' });
+    
+    // Exam Name and Chart Title
+    doc.setFontSize(12);
+    doc.setFont('times', 'bold');
+    doc.text(`Examination: ${examName}`, 40, 95);
+
+    doc.setFontSize(14);
+    const chartTitle = "Invigilation Duty Chart";
+    const titleWidth = doc.getTextWidth(chartTitle);
+    doc.text(chartTitle, pageWidth / 2, 115, { align: 'center' });
+    doc.line((pageWidth - titleWidth) / 2, 118, (pageWidth + titleWidth) / 2, 118);
+
+    // Table Preparation
+    // Two rows of headers: Date Row and Shift Row
+    const head1 = [
+      { content: 'Sl.', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+      { content: 'Invigilator Name', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+      { content: 'Room No.', rowSpan: 2, styles: { halign: 'center' as const, valign: 'middle' as const } },
+      ...dates.map(d => ({ content: d.label, colSpan: d.shifts.length, styles: { halign: 'center' as const } }))
+    ];
+    
+    const head2 = dates.flatMap(d => d.shifts.map(s => ({ content: s, styles: { halign: 'center' as const } })));
+
+    const body = teachers.map((t, idx) => {
+      const rowData: any[] = [idx + 1, t.name, t.roomNo];
+      dates.forEach(d => {
+        d.shifts.forEach(s => {
+          rowData.push(t.assignments[`${d.id}-${s}`] || '');
+        });
+      });
+      return rowData;
+    });
+
+    autoTable(doc, {
+      startY: 130,
+      head: [head1, head2],
+      body: body,
+      theme: 'grid',
+      styles: {
+        font: 'times',
+        fontSize: 9,
+        cellPadding: 3,
+        lineColor: [0, 0, 0],
+        lineWidth: 0.5,
+        textColor: [0, 0, 0]
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: [0, 0, 0],
+        fontStyle: 'bold'
+      },
+      columnStyles: {
+        0: { halign: 'center' as const },
+      },
+      didParseCell: (data) => {
+        // Red color for highlighted teachers
+        if (data.section === 'body' && data.column.index === 1) {
+          const tIdx = data.row.index;
+          if (teachers[tIdx]?.isHighlighted) {
+            data.cell.styles.textColor = [255, 0, 0];
+          }
+        }
+      },
+      margin: { left: 40, right: 40 }
+    });
+
+    // Side Stats
+    const finalY = (doc as any).lastAutoTable.finalY + 20;
+    doc.setFontSize(10);
+    doc.text(`no of room: ${stats.rooms}`, pageWidth - 150, finalY);
+    doc.text(`no of inv: ${stats.invigilators}`, pageWidth - 150, finalY + 15);
+    doc.text(`no of Group d: ${stats.groupD}`, pageWidth - 150, finalY + 30);
+
+    doc.save('Invigilation_Duty_Chart.pdf');
   };
 
-  if (isGenerating) {
-    return (
-      <div className="min-h-screen bg-slate-100 dark:bg-slate-900 pb-12 print:bg-white print:pb-0">
-         {/* Non-print controls */}
-         <div className="max-w-6xl mx-auto pt-8 px-6 print:hidden mb-6 flex justify-between items-center">
-             <Button variant="outline" onClick={() => setIsGenerating(false)} className="gap-2 bg-white">
-                 <ArrowLeft size={16}/> Back to Editor
-             </Button>
-             <Button onClick={handlePrint} className="gap-2 bg-slate-800 text-white hover:bg-slate-700">
-                 <Printer size={16}/> Print Duty Chart
-             </Button>
-         </div>
-
-         {/* PRINTABLE A4 LANDSCAPE CONTAINER */}
-         {/* Using landscape proportions, max-w-full to allow printing wide */}
-         <div className="max-w-[1100px] mx-auto bg-white border border-slate-300 shadow-xl print:shadow-none print:border-none print:w-full print:max-w-none sm:px-12 px-6 py-12 text-black font-sans">
-             
-             {/* HEADERS */}
-             <div className="text-center space-y-4 mb-10">
-                 <h1 className="text-xl font-bold">{institutionName}</h1>
-                 
-                 <div className="text-lg">
-                     Academic Session: <span className="text-red-600 font-semibold">{academicSession}</span>
-                 </div>
-                 
-                     <div className="flex justify-between items-center max-w-4xl mx-auto px-12">
-                         <div className="text-lg">
-                             Examination: <span className="text-red-600 font-semibold">{examinationType}</span>
-                         </div>
-                         <h2 className="text-xl font-bold uppercase tracking-wider pl-8 text-black">INVIGILATION DUTY CHART</h2>
-                         <div className="w-[200px]"></div> {/* spacer for centering Duty Chart title */}
-                     </div>
-             </div>
-
-             {/* THE GRID TABLE */}
-             <table className="w-full border-collapse border border-black text-sm text-center mb-12">
-                 <thead>
-                     <tr>
-                         <th className="border border-black font-normal py-2 w-12" rowSpan={2}>Sl.<br/>No</th>
-                         <th className="border border-black font-bold py-2 w-48" rowSpan={2}>Invigilator Name</th>
-                         {dates.map((d) => (
-                             <th key={d.id} className="border border-black font-normal py-2 text-red-600" colSpan={d.hasH2 ? 2 : 1}>
-                                 {d.label}
-                             </th>
-                         ))}
-                     </tr>
-                     <tr>
-                         {dates.map((d) => (
-                             <React.Fragment key={`${d.id}-headers`}>
-                                 <td className="border border-black py-1 font-normal text-red-600 w-8">{d.hasH2 ? 'H1' : 'H1'}</td>
-                                 {d.hasH2 && <td className="border border-black py-1 font-normal text-red-600 w-8">H2</td>}
-                             </React.Fragment>
-                         ))}
-                     </tr>
-                     {/* A Blank Separator Row for visual spacing */}
-                     <tr>
-                         <td className="border border-black h-5"></td>
-                         <td className="border border-black font-semibold py-1 text-center text-sm"></td>
-                         {dates.map((d) => (
-                             <React.Fragment key={`${d.id}-blank`}>
-                                 <td className="border border-black"></td>
-                                 {d.hasH2 && <td className="border border-black"></td>}
-                             </React.Fragment>
-                         ))}
-                     </tr>
-                 </thead>
-                 <tbody>
-                     {rows.map((r, rIdx) => (
-                         <tr key={r.id}>
-                             <td className="border border-black py-2">{rIdx + 1}</td>
-                             <td className="border border-black text-center px-3 font-medium text-red-600">
-                                {/* Invisible input for quick tweaks before print if needed, but mostly static */}
-                                {r.name || '\u00A0'}
-                             </td>
-                             {dates.map((d) => (
-                                 <React.Fragment key={`${d.id}-cells`}>
-                                     <td className="border border-black py-2 font-bold text-slate-800 text-center h-[37px]">
-                                         {r.assignments[`${d.id}-H1`] || '\u00A0'}
-                                     </td>
-                                     {d.hasH2 && (
-                                         <td className="border border-black py-2 font-bold text-slate-800 text-center h-[37px]">
-                                             {r.assignments[`${d.id}-H2`] || '\u00A0'}
-                                         </td>
-                                     )}
-                                 </React.Fragment>
-                             ))}
-                         </tr>
-                     ))}
-                 </tbody>
-             </table>
-
-             {/* FOOTER MESSAGE */}
-             <div className="mt-12 text-center text-[15px] font-medium px-12 leading-relaxed">
-                 All the invigilators are requested to report to the Examination Cell at least 30 minutes before the commencement of the examination.
-             </div>
-
-         </div>
-      </div>
-    );
-  }
-
-  // EDITOR VIEW
   return (
     <MainLayout>
-      <div className="max-w-6xl mx-auto space-y-6">
-          <div>
-              <h1 className="text-3xl font-bold flex items-center gap-3"><CalendarDays className="text-primary"/> Duty Chart Generator</h1>
-              <p className="text-muted-foreground mt-2">Design an interactive examination invigilator duty roster.</p>
+      <div className="max-w-7xl mx-auto space-y-8 pb-32">
+        {/* Top Action Bar */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+          <div className="animate-in fade-in slide-in-from-left-4 duration-500">
+             <div className="flex items-center gap-4">
+                <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/20">
+                   <CalendarDays className="h-8 w-8 text-white" />
+                </div>
+                <div>
+                   <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">Invigilation Chart</h1>
+                   <p className="text-slate-500 font-medium">Professional duty roster management system.</p>
+                </div>
+             </div>
           </div>
+          
+          <div className="flex items-center gap-3">
+             <Button variant="outline" onClick={() => { setTeachers([]); setDates([]); }} className="h-12 px-6 rounded-xl border-slate-200">
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Clear All
+             </Button>
+             <Button onClick={generatePDF} className="h-12 px-8 rounded-xl bg-blue-600 hover:bg-blue-700 shadow-xl shadow-blue-500/20 text-white font-bold transition-all hover:scale-105 active:scale-95">
+                <Printer className="h-5 w-5 mr-2" />
+                Export Official Chart
+             </Button>
+          </div>
+        </div>
 
-          <Card className="p-6">
-              <h2 className="text-xl font-bold mb-4 border-b pb-2">1. Header Configuration</h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                      <Label>Institution Name</Label>
-                      <Input value={institutionName} onChange={e => setInstitutionName(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                      <Label>Academic Session</Label>
-                      <Input value={academicSession} onChange={e => setAcademicSession(e.target.value)} />
-                  </div>
-                  <div className="space-y-2">
-                      <Label>Examination Type</Label>
-                      <Input value={examinationType} onChange={e => setExaminationType(e.target.value)} />
-                  </div>
-              </div>
-          </Card>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+           {/* SIDEBAR CONFIG */}
+           <div className="lg:col-span-4 space-y-6">
+              <Card className="p-6 border-slate-200 shadow-xl rounded-[2rem] bg-white dark:bg-slate-950">
+                 <div className="flex items-center gap-2 mb-6">
+                    <Settings2 className="h-5 w-5 text-blue-600" />
+                    <h2 className="text-xl font-bold">Header Config</h2>
+                 </div>
+                 
+                 <div className="space-y-4">
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Institution</Label>
+                       <Input value={institution} onChange={e => setInstitution(e.target.value)} className="bg-slate-50 border-none font-bold" />
+                    </div>
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Address/Location</Label>
+                       <Input value={address} onChange={e => setAddress(e.target.value)} className="bg-slate-50 border-none" />
+                    </div>
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Academic Session</Label>
+                       <Input value={session} onChange={e => setSession(e.target.value)} className="bg-slate-50 border-none" />
+                    </div>
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Examination Type</Label>
+                       <textarea 
+                          value={examName} 
+                          onChange={e => setExamName(e.target.value)} 
+                          className="w-full bg-slate-50 border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none min-h-[80px]"
+                        />
+                    </div>
+                 </div>
+              </Card>
 
-          <Card className="p-6 overflow-hidden">
-              <div className="flex justify-between items-center mb-4 border-b pb-2">
-                 <h2 className="text-xl font-bold">2. Interactive Grid Editor</h2>
-                 <Button onClick={addDate} variant="outline" size="sm" className="gap-2">
-                     <Plus size={16}/> Add Date Column
-                 </Button>
-              </div>
+              <Card className="p-6 border-slate-200 shadow-xl rounded-[2rem] bg-white dark:bg-slate-950">
+                 <div className="flex items-center gap-2 mb-6">
+                    <FileCheck className="h-5 w-5 text-emerald-600" />
+                    <h2 className="text-xl font-bold">Summary Stats</h2>
+                 </div>
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400">No. of Rooms</Label>
+                       <Input value={stats.rooms} onChange={e => setStats({...stats, rooms: e.target.value})} className="bg-slate-50 border-none font-mono" />
+                    </div>
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400">Group D Staff</Label>
+                       <Input value={stats.groupD} onChange={e => setStats({...stats, groupD: e.target.value})} className="bg-slate-50 border-none font-mono" />
+                    </div>
+                 </div>
+                 <div className="mt-4 p-4 bg-emerald-50 rounded-2xl border border-emerald-100">
+                    <p className="text-[10px] font-black uppercase text-emerald-600 mb-1">Total Invigilators (Auto)</p>
+                    <p className="text-3xl font-black text-emerald-700">{autoInvCount}</p>
+                 </div>
+              </Card>
+           </div>
 
-              <div className="overflow-x-auto pb-4">
-                  <table className="w-full text-sm min-w-[800px]">
-                      <thead>
-                          <tr>
-                              <th className="p-2 border bg-slate-50 w-12 text-center">Ref</th>
-                              <th className="p-2 border bg-slate-50 w-48 text-left">Invigilator Name</th>
-                              {dates.map((d) => (
-                                  <th key={d.id} className="p-2 border bg-slate-50 text-center min-w-[100px]" colSpan={d.hasH2 ? 2 : 1}>
-                                      <div className="flex items-center justify-between gap-1 mb-1">
-                                          <Input 
-                                            value={d.label} 
-                                            onChange={(e) => updateDateLabel(d.id, e.target.value)}
-                                            className="h-7 text-xs font-bold text-center text-red-600 bg-white px-1"
-                                          />
-                                          <button onClick={() => removeDate(d.id)} className="text-slate-400 hover:text-red-500 shrink-0">
-                                              <Trash2 size={14}/>
-                                          </button>
-                                      </div>
-                                      <div className="flex items-center justify-center gap-1 bg-slate-200/50 p-1 rounded">
-                                          <input 
-                                              type="checkbox" 
-                                              checked={d.hasH2} 
-                                              onChange={() => toggleH2(d.id)}
-                                              id={`h2-${d.id}`}
-                                              className="w-3 h-3 cursor-pointer"
-                                          />
-                                          <label htmlFor={`h2-${d.id}`} className="text-[10px] uppercase text-slate-500 font-bold cursor-pointer">Has H2</label>
-                                      </div>
-                                  </th>
-                              ))}
-                          </tr>
-                          <tr>
-                              <th className="p-0 border-none bg-slate-50"></th>
-                              <th className="p-0 border-none bg-slate-50"></th>
-                              {dates.map(d => (
-                                  <React.Fragment key={`${d.id}-headers`}>
-                                      <th className="p-1 border bg-slate-50 text-xs text-red-500 font-bold text-center w-16">H1</th>
-                                      {d.hasH2 && <th className="p-1 border bg-slate-50 text-xs text-red-500 font-bold text-center w-16">H2</th>}
-                                  </React.Fragment>
-                              ))}
-                          </tr>
-                      </thead>
-                      <tbody>
-                          {rows.map((r, rIdx) => (
-                              <tr key={r.id}>
-                                  <td className="p-2 border text-center text-slate-400 font-bold bg-slate-50/50">
-                                      {rIdx + 1}
-                                  </td>
-                                  <td className="p-2 border relative group bg-white">
-                                      <Input 
-                                          value={r.name} 
-                                          onChange={(e) => updateRowName(r.id, e.target.value)}
-                                          placeholder="Enter name..."
-                                          className="border-transparent focus:border-input shadow-none h-8 w-full font-medium"
+           {/* MAIN EDITOR */}
+           <div className="lg:col-span-8 flex flex-col gap-6">
+              <Card className="flex-1 min-h-[600px] border-slate-200 shadow-2xl rounded-[2.5rem] overflow-hidden bg-white dark:bg-slate-950 flex flex-col">
+                 <div className="p-6 bg-slate-50 dark:bg-slate-900 border-b flex flex-wrap items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                       <div className="flex -space-x-2">
+                          <Button variant="outline" size="sm" onClick={addTeacher} className="rounded-full h-10 w-10 p-0 border-blue-200 text-blue-600 hover:bg-blue-50">
+                             <Plus size={20} />
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} className="rounded-full h-10 w-10 p-0 border-emerald-200 text-emerald-600 hover:bg-emerald-50">
+                             <Upload size={18} />
+                          </Button>
+                          <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx,.xls,.csv" className="hidden" />
+                       </div>
+                       <Badge variant="secondary" className="bg-white px-3 py-1 font-bold text-[10px] border border-slate-200">{teachers.length} TEACHERS</Badge>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                       <Button size="sm" variant="outline" onClick={addDate} className="h-9 px-4 rounded-xl gap-2 font-bold text-xs bg-white">
+                          <TableIcon size={14} /> Add Date
+                       </Button>
+                       <Button size="sm" className="h-9 px-4 rounded-xl gap-2 font-bold text-xs bg-slate-900">
+                          <Save size={14} /> Save Draft
+                       </Button>
+                    </div>
+                 </div>
+
+                 <div className="flex-1 overflow-auto bg-slate-50/30">
+                    <table className="w-full border-collapse">
+                       <thead className="sticky top-0 z-20">
+                          <tr className="bg-white dark:bg-slate-950 border-b shadow-sm">
+                             <th className="p-4 border-r w-12 text-center text-[10px] font-black text-slate-400">REF</th>
+                             <th className="p-4 border-r w-56 text-left text-[10px] font-black text-slate-400">INVIGILATOR NAME</th>
+                             <th className="p-4 border-r w-24 text-left text-[10px] font-black text-slate-400">ROOM NO.</th>
+                             {dates.map(d => (
+                                <th key={d.id} className="p-0 border-r min-w-[120px]" colSpan={d.shifts.length}>
+                                   <div className="flex items-center justify-between px-3 py-1 bg-slate-50/80 border-b">
+                                      <input 
+                                         value={d.label} 
+                                         onChange={e => {
+                                            const next = [...dates];
+                                            const idx = next.findIndex(x => x.id === d.id);
+                                            next[idx].label = e.target.value;
+                                            setDates(next);
+                                         }}
+                                         className="bg-transparent text-[10px] font-black text-blue-600 focus:outline-none w-16" 
                                       />
-                                      <button 
-                                          onClick={() => removeRow(r.id)} 
-                                          className="absolute right-0 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 p-2 transition-opacity block"
-                                      >
-                                          <Trash2 size={14}/>
+                                      <button onClick={() => setDates(dates.filter(x => x.id !== d.id))} className="text-slate-300 hover:text-red-500 p-1">
+                                         <Trash2 size={12} />
                                       </button>
-                                  </td>
-                                  {dates.map((d) => (
-                                      <React.Fragment key={d.id}>
-                                          <td className="p-1 border text-center align-top bg-white">
-                                              <Input 
-                                                  value={r.assignments[`${d.id}-H1`] || ''}
-                                                  onChange={(e) => updateAssignment(r.id, `${d.id}-H1`, e.target.value)}
-                                                  className="h-8 text-center border-slate-200 px-1 placeholder:text-slate-300 font-bold text-slate-700 w-full"
-                                                  placeholder="-"
-                                              />
-                                          </td>
-                                          {d.hasH2 && (
-                                              <td className="p-1 border text-center align-top bg-white">
-                                                  <Input 
-                                                      value={r.assignments[`${d.id}-H2`] || ''}
-                                                      onChange={(e) => updateAssignment(r.id, `${d.id}-H2`, e.target.value)}
-                                                      className="h-8 text-center border-slate-200 px-1 placeholder:text-slate-300 font-bold text-slate-700 w-full"
-                                                      placeholder="-"
-                                                  />
-                                              </td>
-                                          )}
-                                      </React.Fragment>
-                                  ))}
-                              </tr>
+                                   </div>
+                                   <div className="grid grid-cols-4 divide-x">
+                                      {d.shifts.map(s => <div key={s} className="py-1 text-[9px] font-bold text-slate-400 text-center">{s}</div>)}
+                                   </div>
+                                </th>
+                             ))}
+                          </tr>
+                       </thead>
+                       <tbody className="divide-y divide-slate-100">
+                          {teachers.map((t, tIdx) => (
+                             <tr key={t.id} className="bg-white hover:bg-blue-50/20 transition-colors group">
+                                <td className="p-4 border-r text-center text-xs font-mono text-slate-300 group-hover:text-blue-400">{tIdx + 1}</td>
+                                <td className="p-2 border-r relative group/name">
+                                   <div className="flex items-center gap-2 px-2">
+                                      <input 
+                                         type="checkbox" 
+                                         checked={t.isHighlighted} 
+                                         onChange={() => toggleHighlight(t.id)}
+                                         className="h-3 w-3 rounded border-slate-300 accent-red-600"
+                                      />
+                                      <input 
+                                         value={t.name}
+                                         onChange={e => {
+                                            const next = [...teachers];
+                                            next[tIdx].name = e.target.value;
+                                            setTeachers(next);
+                                         }}
+                                         className={`flex-1 bg-transparent border-none focus:ring-0 text-sm font-bold outline-none transition-colors ${t.isHighlighted ? 'text-red-600' : 'text-slate-800'}`}
+                                         placeholder="New Teacher Name..."
+                                      />
+                                   </div>
+                                </td>
+                                <td className="p-2 border-r">
+                                   <input 
+                                      value={t.roomNo}
+                                      onChange={e => {
+                                         const next = [...teachers];
+                                         next[tIdx].roomNo = e.target.value;
+                                         setTeachers(next);
+                                      }}
+                                      className="w-full bg-transparent border-none text-xs font-bold text-slate-600 focus:outline-none text-center"
+                                      placeholder="-"
+                                   />
+                                </td>
+                                {dates.map(d => (
+                                   <React.Fragment key={d.id}>
+                                      {d.shifts.map(s => (
+                                         <td key={s} className="p-1 border-r">
+                                            <input 
+                                               value={t.assignments[`${d.id}-${s}`] || ''}
+                                               onChange={e => updateAssignment(t.id, `${d.id}-${s}`, e.target.value)}
+                                               className="w-full h-8 text-center bg-transparent border-none text-sm font-bold text-blue-600 focus:bg-blue-50 focus:outline-none placeholder:text-slate-200"
+                                               placeholder="-"
+                                            />
+                                         </td>
+                                      ))}
+                                   </React.Fragment>
+                                ))}
+                             </tr>
                           ))}
-                      </tbody>
-                  </table>
-                  
-                  <Button onClick={addRow} variant="outline" size="sm" className="mt-4 gap-2 border-dashed w-full text-slate-500">
-                     <Plus size={16}/> Add Invigilator Row
-                 </Button>
-              </div>
-          </Card>
-
-          <div className="flex justify-end gap-4 pb-12">
-              <Button onClick={() => setIsGenerating(true)} size="lg" className="w-full md:w-auto font-bold bg-primary px-12">
-                 Generate Official Duty Chart
-              </Button>
-          </div>
+                       </tbody>
+                    </table>
+                 </div>
+              </Card>
+           </div>
+        </div>
       </div>
     </MainLayout>
   );

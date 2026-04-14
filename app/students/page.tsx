@@ -341,7 +341,7 @@ export default function DepartmentPlannerPage() {
               <div>
                 <h3 className="text-lg font-medium mb-4">Single Record Entry</h3>
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>reg_no</Label>
                       <Input 
@@ -360,7 +360,7 @@ export default function DepartmentPlannerPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>roll</Label>
                       <Input 
@@ -424,7 +424,7 @@ export default function DepartmentPlannerPage() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Exam Centre Code</Label>
                       <Input 

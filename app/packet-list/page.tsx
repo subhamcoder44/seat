@@ -7,7 +7,18 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Printer, Download, Package, FileText, CheckCircle2, ChevronDown, Check, Users, RefreshCw, Plus, Trash2 } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { 
+  Printer, 
+  Package, 
+  ChevronDown, 
+  Users, 
+  RefreshCw, 
+  Plus, 
+  Trash2,
+  FileSpreadsheet,
+  Settings2
+} from 'lucide-react';
 import { toast } from 'sonner';
 
 type CohortPacket = {
@@ -16,6 +27,12 @@ type CohortPacket = {
   semester: string;
   rolls: string[];
   count: number;
+  date?: string;
+  subject?: string;
+  qcode?: string;
+  half1?: boolean;
+  half2?: boolean;
+  absent?: string;
 };
 
 type RoomPacketData = {
@@ -30,12 +47,14 @@ export default function PacketListPage() {
   const { rooms, students, loadFromLocalStorage } = useAppState();
   const [data, setData] = useState<RoomPacketData[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
+  
+  // Header Config
+  const [institution, setInstitution] = useState('BPC INSTITUTE OF TECHNOLOGY');
+  const [examSession, setExamSession] = useState('Academic Session 2025-2026');
 
   useEffect(() => {
     loadFromLocalStorage();
   }, [loadFromLocalStorage]);
-
-  const [edits, setEdits] = useState<Record<string, Record<string, any>>>({});
 
   const getBranchName = (dept: string) => {
     const mapping: Record<string, string> = {
@@ -89,7 +108,13 @@ export default function PacketListPage() {
         branchName: group.branchName,
         semester: group.sem,
         rolls: group.rolls.sort(),
-        count: group.count
+        count: group.count,
+        date: '',
+        subject: '',
+        qcode: '',
+        half1: false,
+        half2: false,
+        absent: ''
       })).sort((a, b) => a.branchName.localeCompare(b.branchName));
 
       compiledData.push({
@@ -123,18 +148,6 @@ export default function PacketListPage() {
     localStorage.setItem('manual-packet-data', JSON.stringify(newData));
   };
 
-  const handleEdit = (rowId: string, field: string, value: any) => {
-    const newEdits = {
-      ...edits,
-      [rowId]: {
-        ...(edits[rowId] || {}),
-        [field]: value
-      }
-    };
-    setEdits(newEdits);
-    localStorage.setItem('packet-row-edits', JSON.stringify(newEdits));
-  };
-
   const handleDataUpdate = (roomIdx: number, packetIdx: number, field: keyof CohortPacket, value: any) => {
     const newData = [...data];
     const packet = { ...newData[roomIdx].packets[packetIdx] };
@@ -150,22 +163,24 @@ export default function PacketListPage() {
       branchName: '',
       semester: '',
       rolls: [],
-      count: 0
+      count: 0,
+      date: '',
+      subject: '',
+      qcode: '',
+      half1: false,
+      half2: false,
+      absent: ''
     };
     newData[roomIdx].packets.push(newPacket);
     saveToLocalStorage(newData);
-    toast.success('Blank packet added to room');
   };
 
   const deleteRow = (roomIdx: number, packetIdx: number) => {
-    if (!confirm('Are you sure you want to remove this packet entry?')) return;
     const newData = [...data];
     newData[roomIdx].packets.splice(packetIdx, 1);
     saveToLocalStorage(newData);
-    toast.success('Packet entry removed');
   };
 
-  const totalPacketsFound = data.reduce((sum, room) => sum + room.packets.length, 0);
   const totalPapersRequired = data.reduce((sum, room) => sum + room.packets.reduce((s, p) => s + (p.count || 0), 0), 0);
 
   const handlePrint = () => {
@@ -174,281 +189,206 @@ export default function PacketListPage() {
 
   return (
     <MainLayout>
-      <div className="space-y-8 print:space-y-4">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-white dark:bg-slate-950 p-8 rounded-[2rem] border shadow-2xl relative overflow-hidden print:border-none print:shadow-none print:p-0 print:m-0">
-          <div className="absolute right-0 top-0 bottom-0 w-1/3 bg-blue-600/5 -skew-x-12 translate-x-20 print:hidden"></div>
-          <div className="relative z-10">
-            <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-4">
-              <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/20">
-                <Package className="h-8 w-8 text-white" />
-              </div>
-              Packet Distribution List
-            </h1>
-            <p className="text-slate-500 dark:text-slate-400 mt-3 max-w-lg font-medium print:hidden">
-              Official inventory control for question paper distribution across university exam halls.
-            </p>
-            <div className="hidden print:flex flex-col gap-1 mt-4 text-slate-900 text-sm font-bold uppercase tracking-widest">
-              <span>Examination Session: ___________________</span>
-              <span>Date: ___________________</span>
-            </div>
+      <div className="space-y-8 pb-20 print:space-y-0 print:pb-0">
+        {/* Header Section */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-white dark:bg-slate-950 p-8 rounded-[2rem] border shadow-xl print:hidden">
+          <div className="flex items-center gap-4">
+             <div className="p-3 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/20 text-white">
+                <FileSpreadsheet className="h-8 w-8" />
+             </div>
+             <div>
+                <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">Packet Distribution</h1>
+                <p className="text-slate-500 font-medium">Official exam script inventory management.</p>
+             </div>
           </div>
           
-          <div className="flex gap-3 print:hidden relative z-10">
-            <Button onClick={syncWithAllocations} variant="outline" className="h-14 px-6 border-slate-200 bg-white hover:bg-slate-50 text-slate-700 rounded-2xl font-bold gap-2 shadow-sm">
-              <RefreshCw className="h-5 w-5" />
-              Sync
-            </Button>
-            <Button onClick={handlePrint} className="h-14 px-8 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl font-black gap-2 shadow-xl shadow-blue-500/20 group">
-              <Printer className="h-5 w-5 group-hover:scale-110 transition-transform" />
-              Printout
-            </Button>
+          <div className="flex gap-3">
+             <Button onClick={syncWithAllocations} variant="outline" className="h-12 px-6 rounded-xl border-slate-200 font-bold gap-2">
+                <RefreshCw size={18} /> Sync Data
+             </Button>
+             <Button onClick={handlePrint} className="h-12 px-8 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-black gap-2 shadow-xl shadow-blue-500/20 transition-transform active:scale-95">
+                <Printer size={18} /> Print All Packets
+             </Button>
           </div>
         </div>
 
-        {/* Global Summary */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 print:hidden">
-          <Card className="p-6 bg-white dark:bg-slate-900 border-none shadow-xl hover:shadow-2xl transition-all group relative overflow-hidden">
-            <div className="absolute right-0 top-0 h-full w-2 bg-blue-500"></div>
-            <div className="flex items-center gap-6">
-              <div className="p-4 bg-blue-50 dark:bg-blue-900/30 rounded-2xl text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
-                <Package size={32} />
-              </div>
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Active Rooms</p>
-                <div className="flex items-baseline gap-2">
-                   <p className="text-4xl font-black text-slate-900 dark:text-white">{data.length}</p>
-                   <span className="text-xs font-bold text-emerald-500">READY</span>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white dark:bg-slate-900 border-none shadow-xl hover:shadow-2xl transition-all group relative overflow-hidden">
-            <div className="absolute right-0 top-0 h-full w-2 bg-amber-500"></div>
-            <div className="flex items-center gap-6">
-              <div className="p-4 bg-amber-50 dark:bg-amber-900/30 rounded-2xl text-amber-600 dark:text-amber-400 group-hover:scale-110 transition-transform">
-                <FileText size={32} />
-              </div>
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Subject Packets</p>
-                <div className="flex items-baseline gap-2">
-                   <p className="text-4xl font-black text-slate-900 dark:text-white">{totalPacketsFound}</p>
-                   <span className="text-xs font-bold text-amber-500">MANUAL CRUD</span>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="p-6 bg-white dark:bg-slate-900 border-none shadow-xl hover:shadow-2xl transition-all group relative overflow-hidden">
-            <div className="absolute right-0 top-0 h-full w-2 bg-emerald-500"></div>
-            <div className="flex items-center gap-6">
-              <div className="p-4 bg-emerald-50 dark:bg-emerald-900/30 rounded-2xl text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform">
-                <CheckCircle2 size={32} />
-              </div>
-              <div>
-                <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Total Scripts</p>
-                <div className="flex items-baseline gap-2">
-                   <p className="text-4xl font-black text-slate-900 dark:text-white">{totalPapersRequired}</p>
-                   <span className="text-xs font-bold text-emerald-500">REQUIRED</span>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        {/* Main Content Area */}
-        {data.length > 0 ? (
-          <div className="space-y-8 print:space-y-8">
-            {data.map((roomData, roomIdx) => (
-              <Card key={`${roomData.roomId}-${roomIdx}`} className="overflow-hidden border shadow-sm print:shadow-none print:border-slate-400 print:break-inside-avoid">
-                {/* Room Header */}
-                <div className="bg-slate-900 dark:bg-slate-950 px-8 py-6 flex justify-between items-center border-b border-white/10 print:bg-slate-200 print:text-black print:border-b-4 print:border-black">
-                  <div className="space-y-1">
-                    <h2 className="text-2xl font-black text-white dark:text-slate-100 tracking-tight flex items-center gap-3 print:text-black">
-                       <span className="p-1.5 bg-blue-600/20 rounded-lg print:hidden">
-                         <ChevronDown className="h-5 w-5 text-blue-400" />
-                       </span>
-                       {roomData.roomName.toLowerCase().includes('room') ? '' : 'ROOM '} {roomData.roomName.toUpperCase()} 
-                       <Badge className="ml-3 font-black px-3 py-1 bg-white/10 text-white border-none tracking-widest text-[10px] print:hidden">BLDG: {roomData.building}</Badge>
-                    </h2>
-                    <div className="flex gap-6 mt-1">
-                      <p className="text-xs text-blue-300 font-bold uppercase tracking-widest flex items-center gap-1.5 print:text-black">
-                        <Users className="h-3 w-3" />
-                        Allocated: <span className="text-white print:text-black ml-1 font-black underline decoration-blue-500 decoration-2">{roomData.totalAllocated}</span>
-                      </p>
-                      <p className="text-xs text-blue-300 font-bold uppercase tracking-widest flex items-center gap-1.5 print:text-black">
-                        <Package className="h-3 w-3" />
-                        Packets: <span className="text-white print:text-black ml-1 font-black">{roomData.packets.length}</span>
-                      </p>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:block">
+           {/* Sidebar Config - Hidden in print */}
+           <div className="lg:col-span-3 space-y-6 print:hidden">
+              <Card className="p-6 rounded-[1.5rem] shadow-lg border-slate-200 bg-white dark:bg-slate-950">
+                 <div className="flex items-center gap-2 mb-6">
+                    <Settings2 className="h-5 w-5 text-blue-600" />
+                    <h2 className="text-xl font-bold">Document Setup</h2>
+                 </div>
+                 <div className="space-y-4">
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Institution Name</Label>
+                       <Input value={institution} onChange={e => setInstitution(e.target.value)} className="bg-slate-50 border-none font-bold" />
                     </div>
-                  </div>
-                  
-                  <div className="flex gap-4 print:hidden">
-                    <Button 
-                      onClick={() => addRow(roomIdx)}
-                      variant="outline" 
-                      className="bg-white/10 hover:bg-white/20 text-white border-none font-bold gap-2 text-xs h-10 px-4"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Add Packet
-                    </Button>
-                    <div className="flex items-center gap-3 border-2 border-white/20 rounded-xl px-5 py-2.5 bg-white/5 backdrop-blur-sm print:bg-white print:border-black print:border-3 print:rounded-none">
-                       <div className="w-5 h-5 border-2 border-white/40 rounded-md bg-transparent flex items-center justify-center print:border-black"></div>
-                       <span className="font-black text-white text-[10px] tracking-widest uppercase print:text-black print:text-xs">Verified</span>
+                    <div className="space-y-2">
+                       <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Exam Session</Label>
+                       <Input value={examSession} onChange={e => setExamSession(e.target.value)} className="bg-slate-50 border-none" />
                     </div>
-                  </div>
-                </div>
-
-                {/* Modern Table matching the requested format */}
-                <div className="overflow-x-auto bg-white p-2 print:p-0">
-                  <table className="w-full text-xs border-collapse border border-black print:text-[11px] mb-4">
-                    <thead>
-                      <tr className="bg-slate-100 print:bg-slate-50 text-slate-900 font-black border-b-[3px] border-slate-900 uppercase tracking-tighter text-[9px] print:border-black print:text-black">
-                        <th className="border-x border-slate-200 p-3 w-10 text-center print:border-black">SL.</th>
-                        <th className="border-x border-slate-200 p-3 w-28 print:border-black">Exam Date</th>
-                        <th className="border-x border-slate-200 p-1 w-10 text-center print:border-black">FN</th>
-                        <th className="border-x border-slate-200 p-1 w-10 text-center print:border-black">AN</th>
-                        <th className="border-x border-slate-200 p-3 w-36 print:border-black text-left">Subject Name</th>
-                        <th className="border-x border-slate-200 p-3 w-20 text-center print:border-black">Code</th>
-                        <th className="border-x border-slate-200 p-3 w-32 print:border-black text-left">Branch</th>
-                        <th className="border-x border-slate-200 p-3 w-12 text-center print:border-black">SEM</th>
-                        <th className="border-x border-slate-200 p-3 w-64 text-left print:border-black">Roll List</th>
-                        <th className="border-x border-slate-200 p-3 w-12 text-center print:border-black">ABS</th>
-                        <th className="border-x border-slate-200 p-3 w-12 text-center print:border-black">TOT</th>
-                        <th className="border-x border-slate-200 p-3 w-10 text-center print:hidden"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {roomData.packets.map((packet, pIdx) => {
-                        const rowState = edits[packet.id] || {};
-                        return (
-                          <tr key={`${packet.id}-${pIdx}`} className="text-slate-700 print:text-black hover:bg-slate-50 transition-colors group/row">
-                            <td className="border border-slate-200 print:border-black p-2 text-center font-bold text-slate-400 print:text-black">
-                              {pIdx + 1}
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                              <Input 
-                                value={rowState.date || ''}
-                                onChange={e => handleEdit(packet.id, 'date', e.target.value)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent"
-                                placeholder="DD/MM/YYYY"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1 text-center align-middle">
-                              <input 
-                                type="checkbox"
-                                checked={rowState.half1 || false}
-                                onChange={e => handleEdit(packet.id, 'half1', e.target.checked)}
-                                className="w-4 h-4 cursor-pointer accent-blue-600"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1 text-center align-middle">
-                               <input 
-                                type="checkbox"
-                                checked={rowState.half2 || false}
-                                onChange={e => handleEdit(packet.id, 'half2', e.target.checked)}
-                                className="w-4 h-4 cursor-pointer accent-blue-600"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                              <Input 
-                                value={rowState.subject || ''}
-                                onChange={e => handleEdit(packet.id, 'subject', e.target.value)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent"
-                                placeholder="Subject Description"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                              <Input 
-                                value={rowState.qcode || ''}
-                                onChange={e => handleEdit(packet.id, 'qcode', e.target.value)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent text-center font-black"
-                                placeholder="CODE"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                               <Input 
-                                value={packet.branchName}
-                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'branchName', e.target.value)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent font-black uppercase"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                               <Input 
-                                value={packet.semester}
-                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'semester', e.target.value)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent text-center font-black"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-2">
-                               <textarea 
-                                value={packet.rolls.length > 0 ? packet.rolls.join(', ') : ''}
-                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'rolls', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
-                                className="w-full text-[9px] font-mono leading-tight bg-transparent border-none focus:ring-1 focus:ring-blue-200 resize-none min-h-[32px] p-1 text-slate-500 print:text-black"
-                                rows={2}
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                              <Input 
-                                value={rowState.absent || ''}
-                                onChange={e => handleEdit(packet.id, 'absent', e.target.value)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent text-center font-bold"
-                                placeholder="0"
-                              />
-                            </td>
-                            <td className="border border-slate-200 print:border-black p-1">
-                               <Input 
-                                type="number"
-                                value={packet.count}
-                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'count', parseInt(e.target.value) || 0)}
-                                className="h-8 border-transparent focus:bg-slate-100 shadow-none p-1 w-full text-xs bg-transparent text-center font-black text-blue-600 print:text-black"
-                              />
-                            </td>
-                            <td className="border-none p-1 text-center print:hidden">
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-8 w-8 text-rose-500 hover:text-rose-700 hover:bg-rose-50 opacity-0 group-hover/row:opacity-100 transition-opacity"
-                                onClick={() => deleteRow(roomIdx, pIdx)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+                 </div>
               </Card>
-            ))}
-          </div>
-        ) : (
-          <Card className="p-16 text-center border-dashed border-2 flex flex-col items-center justify-center print:hidden bg-slate-50/50 dark:bg-slate-900/10 rounded-[2rem]">
-            <div className="h-24 w-24 bg-white dark:bg-slate-800 rounded-[2rem] shadow-xl flex items-center justify-center mb-6">
-              <Package size={40} className="text-blue-500" />
-            </div>
-            <h3 className="text-2xl font-black text-slate-800 dark:text-slate-200 mb-2">No Packet Inventory Data</h3>
-            <p className="text-slate-500 dark:text-slate-400 max-w-sm mb-6 leading-relaxed font-medium">
-              Click <strong>Sync</strong> to pull data from your current allocations, or add manual entries by clicking the Add button.
-            </p>
-            <Button onClick={syncWithAllocations} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl h-12 px-8 font-bold gap-2">
-               <RefreshCw size={18} />
-               Initial Sync with Allocations
-            </Button>
-          </Card>
-        )}
-        
-        {/* Footer for dynamic print page */}
-        <div className="hidden print:flex justify-between items-end pt-12 text-sm font-medium text-slate-500 border-t-2 border-slate-800 mt-[100px]">
-           <p className="italic">Generated by Advanced Exam Seat Management System</p>
-           <div className="text-center">
-             <div className="border-b border-black w-64 mb-2"></div>
-             <p className="text-black font-semibold uppercase tracking-wider text-xs">Controller of Examinations / Invigilator Signature</p>
+
+              <Card className="p-6 rounded-[1.5rem] shadow-lg border-slate-200 bg-slate-900 text-white">
+                 <p className="text-[10px] font-black uppercase text-blue-400 tracking-widest mb-1">Total Scripts Required</p>
+                 <p className="text-4xl font-black">{totalPapersRequired}</p>
+                 <div className="mt-4 pt-4 border-t border-white/10 text-[10px] font-medium text-slate-400">
+                    Calculated from current seat allocations.
+                 </div>
+              </Card>
+           </div>
+
+           {/* Main Content Area */}
+           <div className="lg:col-span-9 space-y-8 print:w-full print:m-0">
+             {data.map((roomData, roomIdx) => (
+               <Card key={`${roomData.roomId}-${roomIdx}`} className="overflow-hidden border-2 shadow-sm rounded-[2rem] print:rounded-none print:shadow-none print:border-none print:break-after-page">
+                 {/* Room/Institution Header for PDF */}
+                 <div className="hidden print:block text-center space-y-1 mb-6 mt-4">
+                    <h1 className="text-xl font-bold uppercase">{institution}</h1>
+                    <p className="text-sm font-medium">{examSession}</p>
+                    <h2 className="text-lg font-bold border-b-2 border-slate-800 inline-block px-8 py-1 mt-2">PACKET DISTRIBUTION LIST</h2>
+                    <div className="flex justify-between items-center mt-4 px-2">
+                       <p className="font-bold">ROOM NO: {roomData.roomName.toUpperCase()}</p>
+                       <p className="font-bold">TOTAL STUDENTS: {roomData.totalAllocated}</p>
+                    </div>
+                 </div>
+
+                 <div className="bg-slate-50 dark:bg-slate-900/50 px-8 py-4 flex justify-between items-center border-b print:hidden">
+                    <h2 className="text-xl font-black flex items-center gap-3">
+                       <ChevronDown className="text-blue-500" />
+                       ROOM {roomData.roomName.toUpperCase()}
+                       <Badge variant="outline" className="ml-2 bg-white text-[10px] uppercase">{roomData.totalAllocated} Scripts</Badge>
+                    </h2>
+                    <Button onClick={() => addRow(roomIdx)} variant="ghost" size="sm" className="h-9 px-4 rounded-xl gap-2 font-bold text-blue-600 hover:bg-blue-50">
+                       <Plus size={16} /> Add Packet
+                    </Button>
+                 </div>
+
+                 {/* Official Table matching requested format */}
+                 <div className="overflow-x-auto p-2 print:p-0">
+                   <table className="w-full text-xs border-collapse border border-black print:text-[10px] font-serif">
+                     <thead>
+                       <tr className="bg-slate-100 print:bg-white text-black font-bold">
+                         <th className="border border-black p-2 w-10 text-center" rowSpan={2}>SL. NO</th>
+                         <th className="border border-black p-2 w-24 text-center" rowSpan={2}>Date of Examination</th>
+                         <th className="border border-black p-1 text-center" colSpan={2}>Half</th>
+                         <th className="border border-black p-2 w-48 text-left" rowSpan={2}>Name of the Subject</th>
+                         <th className="border border-black p-2 w-20 text-center" rowSpan={2}>Question Code</th>
+                         <th className="border border-black p-2 w-36 text-left" rowSpan={2}>Name of the Branch</th>
+                         <th className="border border-black p-2 w-10 text-center" rowSpan={2}>Semester</th>
+                         <th className="border border-black p-2 min-w-[150px] text-left" rowSpan={2}>Details of the candidate</th>
+                         <th className="border border-black p-2 w-12 text-center" rowSpan={2}>Absent</th>
+                         <th className="border border-black p-2 w-12 text-center" rowSpan={2}>Total</th>
+                         <th className="border border-black p-2 w-10 text-center print:hidden" rowSpan={2}></th>
+                       </tr>
+                       <tr className="bg-slate-50 print:bg-white text-black font-bold">
+                         <th className="border border-black p-1 text-center w-8">1</th>
+                         <th className="border border-black p-1 text-center w-8">2</th>
+                       </tr>
+                     </thead>
+                     <tbody className="divide-y divide-black">
+                       {roomData.packets.map((packet, pIdx) => (
+                         <tr key={packet.id} className="hover:bg-slate-50/50 group/row">
+                           <td className="border border-black p-1 text-center font-bold">{pIdx + 1}</td>
+                           <td className="border border-black p-1">
+                             <input 
+                               value={packet.date || ''} 
+                               onChange={e => handleDataUpdate(roomIdx, pIdx, 'date', e.target.value)}
+                               className="w-full bg-transparent border-none text-center focus:ring-0 p-0 text-[10px]" 
+                               placeholder="DD-MM-YYYY"
+                             />
+                           </td>
+                           <td className="border border-black p-1 text-center">
+                              <input 
+                                type="checkbox" 
+                                checked={packet.half1} 
+                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'half1', e.target.checked)}
+                                className="w-3 h-3 cursor-pointer"
+                              />
+                           </td>
+                           <td className="border border-black p-1 text-center">
+                              <input 
+                                type="checkbox" 
+                                checked={packet.half2} 
+                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'half2', e.target.checked)}
+                                className="w-3 h-3 cursor-pointer"
+                              />
+                           </td>
+                           <td className="border border-black p-1">
+                             <textarea 
+                               value={packet.subject || ''} 
+                               onChange={e => handleDataUpdate(roomIdx, pIdx, 'subject', e.target.value)}
+                               className="w-full bg-transparent border-none focus:ring-0 p-0 resize-none leading-tight h-8"
+                               placeholder="Enter Subject..."
+                             />
+                           </td>
+                           <td className="border border-black p-1">
+                             <input 
+                               value={packet.qcode || ''} 
+                               onChange={e => handleDataUpdate(roomIdx, pIdx, 'qcode', e.target.value)}
+                               className="w-full bg-transparent border-none text-center focus:ring-0 p-0 font-bold"
+                             />
+                           </td>
+                           <td className="border border-black p-1">
+                              <input 
+                                value={packet.branchName} 
+                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'branchName', e.target.value)}
+                                className="w-full bg-transparent border-none focus:ring-0 p-0 uppercase"
+                              />
+                           </td>
+                           <td className="border border-black p-1 text-center font-bold">
+                              <input 
+                                value={packet.semester} 
+                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'semester', e.target.value)}
+                                className="w-full bg-transparent border-none text-center focus:ring-0 p-0"
+                              />
+                           </td>
+                           <td className="border border-black p-2">
+                              <textarea 
+                                value={packet.rolls.join(', ')} 
+                                onChange={e => handleDataUpdate(roomIdx, pIdx, 'rolls', e.target.value.split(',').map(v => v.trim()).filter(Boolean))}
+                                className="w-full text-[9px] font-mono leading-none bg-transparent border-none focus:ring-0 p-0 min-h-[40px] resize-none"
+                              />
+                           </td>
+                           <td className="border border-black p-1">
+                             <input 
+                               value={packet.absent || ''} 
+                               onChange={e => handleDataUpdate(roomIdx, pIdx, 'absent', e.target.value)}
+                               className="w-full bg-transparent border-none text-center focus:ring-0 p-0" 
+                             />
+                           </td>
+                           <td className="border border-black p-1 text-center font-black">
+                             <input 
+                               type="number"
+                               value={packet.count} 
+                               onChange={e => handleDataUpdate(roomIdx, pIdx, 'count', parseInt(e.target.value) || 0)}
+                               className="w-full bg-transparent border-none text-center focus:ring-0 p-0 font-black text-blue-600 print:text-black" 
+                             />
+                           </td>
+                           <td className="border border-black p-1 text-center print:hidden">
+                             <button onClick={() => deleteRow(roomIdx, pIdx)} className="text-red-300 hover:text-red-500 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                                <Trash2 size={14} />
+                             </button>
+                           </td>
+                         </tr>
+                       ))}
+                     </tbody>
+                   </table>
+
+                   <div className="hidden print:flex flex-col items-end gap-12 mt-12 pb-8">
+                      <div className="text-center">
+                         <div className="border-b-2 border-slate-800 w-48 mb-2"></div>
+                         <p className="text-[10px] font-bold uppercase tracking-widest">Invigilator SIGNATURE</p>
+                      </div>
+                   </div>
+                 </div>
+               </Card>
+             ))}
            </div>
         </div>
-
       </div>
     </MainLayout>
   );

@@ -158,7 +158,7 @@ export default function RoomsPage() {
             <h2 className="text-xl font-semibold mb-6">Add / Edit Room Details</h2>
             
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Room Number/Name</Label>
                   <Input 
@@ -183,7 +183,7 @@ export default function RoomsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Floor Number</Label>
                   <Input 
@@ -217,7 +217,7 @@ export default function RoomsPage() {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 items-start">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label>Grid Layout (Rows × Cols)</Label>
